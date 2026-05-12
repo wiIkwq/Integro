@@ -1,0 +1,4 @@
+GOOGLE_CLIENT_ID="replace-me"
+GOOGLE_CLIENT_SECRET="replace-me"
+SESSION_SECRET="dev-session-secret-change-me"
+BRIDGE_TOKEN="dev-bridge-token-change-me"

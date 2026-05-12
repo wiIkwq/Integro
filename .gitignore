@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.wrangler-build/
+.dev.vars
+.env
+.env.local
+.DS_Store
+*.log
+apps/minecraft-plugin/build/
+apps/minecraft-plugin/.gradle/

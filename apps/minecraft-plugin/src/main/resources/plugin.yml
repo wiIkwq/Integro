@@ -1,0 +1,6 @@
+name: IntegroBridge
+version: ${version}
+main: dev.integro.bridge.IntegroBridgePlugin
+api-version: "1.21"
+author: Integro
+description: WebSocket bridge for Integro Minecraft actions.

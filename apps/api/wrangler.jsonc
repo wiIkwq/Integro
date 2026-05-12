@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "integro-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-12",
+  "vars": {
+    "ENVIRONMENT": "production",
+    "WEB_ORIGIN": "http://localhost:5173",
+    "API_ORIGIN": "http://localhost:8787",
+    "ADMIN_GOOGLE_EMAILS": "streamer@example.com",
+    "COOKIE_SAMESITE": "Lax"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "integro-db",
+      "database_id": "f96511a0-9157-468c-97fe-0c20a644ea68"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BRIDGE_ROOM",
+        "class_name": "BridgeRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "BridgeRoom"
+      ]
+    }
+  ]
+}
