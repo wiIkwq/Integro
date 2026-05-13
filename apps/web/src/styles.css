@@ -58,6 +58,27 @@ a {
   color: inherit;
 }
 
+#root {
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+.pixel-snow-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pixel-snow-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.58;
+  mix-blend-mode: screen;
+}
+
 .boot,
 .mini-loading {
   display: flex;
@@ -69,6 +90,8 @@ a {
 }
 
 .boot {
+  position: relative;
+  z-index: 1;
   min-height: 100vh;
 }
 
@@ -77,6 +100,8 @@ a {
 }
 
 .app-shell {
+  position: relative;
+  z-index: 1;
   min-height: 100vh;
 }
 
@@ -85,6 +110,7 @@ a {
   top: 0;
   z-index: 30;
   display: flex;
+  min-height: 70px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -159,6 +185,7 @@ a {
 
 .profile-wrap {
   position: relative;
+  flex: 0 0 auto;
 }
 
 .profile-chip {
@@ -185,9 +212,9 @@ a {
 }
 
 .profile-popover {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
+  position: fixed;
+  top: 76px;
+  right: 24px;
   z-index: 40;
   width: min(360px, calc(100vw - 28px));
   padding: 14px;
@@ -195,6 +222,8 @@ a {
   border-radius: 0;
   background: var(--panel);
   box-shadow: var(--shadow);
+  transform-origin: top right;
+  animation: menu-pop 0.18s ease both;
 }
 
 .profile-popover-head {
@@ -236,6 +265,8 @@ a {
 }
 
 .login-shell {
+  position: relative;
+  z-index: 1;
   display: grid;
   min-height: 100vh;
   place-items: center;
@@ -337,6 +368,14 @@ a {
   margin-bottom: 18px;
 }
 
+.viewer-bar-compact {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
 .viewer-bar h1,
 .admin-hero h1 {
   margin: 0 0 8px;
@@ -353,8 +392,12 @@ a {
 
 .voucher-strip {
   display: flex;
-  width: min(420px, 100%);
+  width: min(330px, 100%);
   gap: 10px;
+}
+
+.voucher-strip input {
+  min-width: 0;
 }
 
 .hero-actions,
@@ -439,6 +482,27 @@ a {
 
 .panel {
   padding: 18px;
+}
+
+.panel,
+.action-card,
+.metric,
+.stat-mini,
+.profile-chip,
+.balance-chip,
+.voucher-strip {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.action-card:hover,
+.metric:hover,
+.panel:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 rgba(231, 244, 228, 0.9);
 }
 
 .panel-title {
@@ -553,7 +617,7 @@ code {
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.primary-action:hover {
+.primary-action:not(:disabled):hover {
   transform: translate(-2px, -2px);
   background: var(--accent);
   box-shadow: 6px 6px 0 var(--line);
@@ -573,10 +637,10 @@ code {
   padding: 0 14px;
 }
 
-.secondary-action:hover,
-.icon-button:hover,
-.tabs button:hover,
-.mode-row button:hover {
+.secondary-action:not(:disabled):hover,
+.icon-button:not(:disabled):hover,
+.tabs button:not(:disabled):hover,
+.mode-row button:not(:disabled):hover {
   border-color: var(--line-strong);
   background: var(--panel-2);
   transform: translate(-1px, -1px);
@@ -643,6 +707,12 @@ code {
   background-position: center;
   background-size: cover;
   color: var(--accent-strong);
+  transition: transform 0.28s ease, filter 0.28s ease;
+}
+
+.action-card:hover .action-banner {
+  transform: scale(1.015);
+  filter: saturate(1.08);
 }
 
 .action-banner.has-image {
@@ -725,14 +795,21 @@ code {
 }
 
 .notice {
-  margin: 12px 0;
+  position: fixed;
+  top: 84px;
+  right: 24px;
+  z-index: 80;
+  width: min(360px, calc(100vw - 32px));
+  margin: 0;
   padding: 10px 12px;
   border: 2px solid rgba(158, 195, 255, 0.4);
   border-radius: 0;
   background: var(--blue-soft);
   color: #c9ddff;
+  box-shadow: var(--shadow-small);
   font-weight: 800;
   line-height: 1.35;
+  animation: toast-in 0.24s ease both;
 }
 
 .notice.success {
@@ -754,8 +831,8 @@ code {
 }
 
 .shell-notice {
-  width: min(1180px, calc(100% - 32px));
-  margin: 18px auto 0;
+  width: min(360px, calc(100vw - 32px));
+  margin: 0;
 }
 
 .metrics {
@@ -1153,6 +1230,28 @@ code {
   }
 }
 
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(12px, -12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -1168,6 +1267,10 @@ code {
 
   .voucher-strip {
     width: 100%;
+  }
+
+  .viewer-bar-compact .voucher-strip {
+    width: min(330px, 100%);
   }
 
   .hero-actions {
@@ -1202,8 +1305,10 @@ code {
   }
 
   .profile-popover {
-    right: auto;
-    left: 0;
+    top: 132px;
+    right: 12px;
+    left: 12px;
+    width: auto;
   }
 
   .viewer-bar h1,
@@ -1218,6 +1323,14 @@ code {
   .row-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .viewer-bar-compact {
+    justify-content: stretch;
+  }
+
+  .viewer-bar-compact .voucher-strip {
+    width: 100%;
   }
 
   .input-with-button .secondary-action,
@@ -1260,6 +1373,12 @@ code {
 
   .balance-chip {
     width: 100%;
+  }
+
+  .notice {
+    top: 12px;
+    right: 10px;
+    width: calc(100vw - 20px);
   }
 
   .split-inputs,

@@ -32,7 +32,7 @@ import {
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, ShinyButton, SpotlightCard, StatusDot } from "./components/Bits";
+import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard, StatusDot } from "./components/Bits";
 import "./styles.css";
 
 const EMPTY_ACTION_FORM = {
@@ -105,7 +105,40 @@ function StatusPill({ status }) {
 
 function Notice({ notice }) {
   if (!notice?.text) return null;
-  return <div className={`notice ${notice.tone || "info"}`}>{notice.text}</div>;
+  return (
+    <div className={`notice ${notice.tone || "info"}`} role="status" aria-live="polite">
+      {notice.text}
+    </div>
+  );
+}
+
+function useAutoDismissNotice(notice, setNotice, delay = 3800) {
+  useEffect(() => {
+    if (!notice?.text) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), delay);
+    return () => window.clearTimeout(timer);
+  }, [delay, notice?.text, setNotice]);
+}
+
+function AppBackground() {
+  return (
+    <div className="pixel-snow-shell" aria-hidden="true">
+      <PixelSnow
+        color="#ffffff"
+        flakeSize={0.007}
+        minFlakeSize={1}
+        pixelResolution={275}
+        speed={0.1}
+        depthFade={15}
+        farPlane={15}
+        brightness={1.6}
+        gamma={0.7}
+        density={0.2}
+        variant="square"
+        direction={115}
+      />
+    </div>
+  );
 }
 
 function EmptyState({ icon: Icon, title, text }) {
@@ -178,23 +211,36 @@ function App() {
 
   if (loading) {
     return (
-      <div className="boot">
-        <Loader2 className="spin" size={22} />
-        Загрузка Integro
-      </div>
+      <>
+        <AppBackground />
+        <div className="boot">
+          <Loader2 className="spin" size={22} />
+          Загрузка Integro
+        </div>
+      </>
     );
   }
 
-  if (!me) return <LoginScreen />;
+  if (!me) {
+    return (
+      <>
+        <AppBackground />
+        <LoginScreen />
+      </>
+    );
+  }
 
   return (
-    <Shell user={me} onLogout={logout} error={error}>
-      {me.role === "admin" ? (
-        <AdminDashboard onUserChange={setMe} />
-      ) : (
-        <UserDashboard user={me} onUserChange={setMe} />
-      )}
-    </Shell>
+    <>
+      <AppBackground />
+      <Shell user={me} onLogout={logout} error={error}>
+        {me.role === "admin" ? (
+          <AdminDashboard onUserChange={setMe} />
+        ) : (
+          <UserDashboard user={me} onUserChange={setMe} />
+        )}
+      </Shell>
+    </>
   );
 }
 
@@ -298,6 +344,8 @@ function UserDashboard({ user, onUserChange }) {
   const [notice, setNotice] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  useAutoDismissNotice(notice, setNotice);
+
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
     try {
@@ -349,16 +397,12 @@ function UserDashboard({ user, onUserChange }) {
 
   return (
     <main className="workspace user-workspace">
-      <section className="viewer-bar">
-        <AnimatedPanel>
-          <h1>Доступные команды</h1>
-          <p>Баланс сверху. Ваучер вводится здесь, команды запускаются одной кнопкой.</p>
-        </AnimatedPanel>
-        <form className="voucher-strip" onSubmit={redeem}>
+      <section className="viewer-bar viewer-bar-compact">
+        <form className="voucher-strip" onSubmit={redeem} aria-label="Активация ваучера">
           <input
             value={voucher}
             onChange={(event) => setVoucher(event.target.value)}
-            placeholder="LIVE-500"
+            placeholder="Ваучер"
             autoComplete="off"
             aria-label="Код ваучера"
           />
@@ -448,6 +492,12 @@ function AdminDashboard({ onUserChange }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [bridgeBusy, setBridgeBusy] = useState(false);
+
+  useEffect(() => {
+    if (!message) return undefined;
+    const timer = window.setTimeout(() => setMessage(""), 3800);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
