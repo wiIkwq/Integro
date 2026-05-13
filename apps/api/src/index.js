@@ -22,7 +22,11 @@ const app = new Hono();
 
 app.use("*", async (c, next) => {
   const origin = c.req.header("origin");
-  const allowed = [c.env.WEB_ORIGIN, c.env.API_ORIGIN].filter(Boolean);
+  const allowed = [
+    c.env.WEB_ORIGIN,
+    c.env.API_ORIGIN,
+    ...String(c.env.LEGACY_WEB_ORIGINS || "").split(",").map((item) => item.trim())
+  ].filter(Boolean);
   return cors({
     origin: origin && allowed.includes(origin) ? origin : allowed[0] || "*",
     credentials: true,
@@ -49,7 +53,7 @@ app.get("/auth/google/start", async (c) => {
   const returnTo = safeReturnTo(c.env, c.req.query("returnTo"));
   setOauthStateCookie(c, state, returnTo);
 
-  const redirectUri = `${c.env.API_ORIGIN}/auth/google/callback`;
+  const redirectUri = `${apiOrigin(c)}/auth/google/callback`;
   const params = new URLSearchParams({
     client_id: c.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -72,7 +76,7 @@ app.get("/auth/google/callback", async (c) => {
   }
 
   clearOauthStateCookie(c);
-  const redirectUri = `${c.env.API_ORIGIN}/auth/google/callback`;
+  const redirectUri = `${apiOrigin(c)}/auth/google/callback`;
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -130,7 +134,7 @@ app.get("/auth/twitch/start", async (c) => {
   const returnTo = safeReturnTo(c.env, c.req.query("returnTo"));
   setOauthStateCookie(c, state, returnTo);
 
-  const redirectUri = `${c.env.API_ORIGIN}/auth/twitch/callback`;
+  const redirectUri = `${apiOrigin(c)}/auth/twitch/callback`;
   const params = new URLSearchParams({
     client_id: c.env.TWITCH_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -153,7 +157,7 @@ app.get("/auth/twitch/callback", async (c) => {
   }
 
   clearOauthStateCookie(c);
-  const redirectUri = `${c.env.API_ORIGIN}/auth/twitch/callback`;
+  const redirectUri = `${apiOrigin(c)}/auth/twitch/callback`;
   const tokenResponse = await fetch("https://id.twitch.tv/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -228,33 +232,31 @@ app.post("/auth/logout", async (c) => {
 });
 
 app.get("/actions", async (c) => {
-  const rows = await c.env.DB.prepare(
+  const [rows, bridge] = await Promise.all([
+    c.env.DB.prepare(
     `SELECT id, title, description, price, cooldown_seconds, is_enabled,
-            command_plan, command_mode, repeat_count, repeat_delay_ms, step_delay_ms, banner_url
+            command_plan, command_mode, repeat_count, repeat_delay_ms, step_delay_ms, random_count, banner_url
      FROM minecraft_actions
-     WHERE is_enabled = 1
+     WHERE is_enabled = 1 AND deleted_at IS NULL
      ORDER BY created_at DESC`
-  ).all();
-  return c.json(ok({ actions: mapActions(rows.results || []) }));
+    ).all(),
+    bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false, sockets: 0, queued: 0 }))
+  ]);
+  return c.json(ok({ actions: mapActions(rows.results || []), bridge }));
 });
 
 app.post("/actions/:id/purchase", requireUser, async (c) => {
   const user = c.get("user");
   const actionId = c.req.param("id");
-  const action = await c.env.DB.prepare(
-    "SELECT * FROM minecraft_actions WHERE id = ? AND is_enabled = 1"
-  ).bind(actionId).first();
+  const [action, bridge] = await Promise.all([
+    c.env.DB.prepare(
+      "SELECT * FROM minecraft_actions WHERE id = ? AND is_enabled = 1 AND deleted_at IS NULL"
+    ).bind(actionId).first(),
+    bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false }))
+  ]);
 
   if (!action) return fail("Action is not available", "action_unavailable", 404);
-
-  if (action.cooldown_seconds > 0) {
-    const cooldown = await c.env.DB.prepare(
-      `SELECT id FROM action_purchases
-       WHERE action_id = ? AND created_at > datetime('now', ?)
-       LIMIT 1`
-    ).bind(actionId, `-${action.cooldown_seconds} seconds`).first();
-    if (cooldown) return fail("Action is on cooldown", "cooldown", 429);
-  }
+  if (!bridge?.connected) return fail("Streamer is offline", "bridge_offline", 409);
 
   const purchaseId = crypto.randomUUID();
   const txId = crypto.randomUUID();
@@ -361,7 +363,7 @@ app.post("/vouchers/redeem", requireUser, async (c) => {
   if (!code) return fail("Voucher code is required", "invalid_code", 400);
 
   const voucher = await c.env.DB.prepare("SELECT * FROM vouchers WHERE code = ?").bind(code).first();
-  if (!voucher || !voucher.is_active) return fail("Voucher is not active", "voucher_inactive", 404);
+  if (!voucher || !voucher.is_active || voucher.deleted_at) return fail("Voucher is not active", "voucher_inactive", 404);
   if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
     return fail("Voucher has expired", "voucher_expired", 410);
   }
@@ -369,6 +371,8 @@ app.post("/vouchers/redeem", requireUser, async (c) => {
   const redemptionId = crypto.randomUUID();
   const txId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const perUserLimit = clampNumber(voucher.per_user_limit || 1, 1, 100000);
+  const cooldownSeconds = clampNumber(voucher.per_user_cooldown_seconds || 0, 0, 31536000);
 
   const batch = await c.env.DB.batch([
     c.env.DB.prepare(
@@ -378,11 +382,29 @@ app.post("/vouchers/redeem", requireUser, async (c) => {
          AND is_active = 1
          AND redeemed_count < max_redemptions
          AND (expires_at IS NULL OR expires_at > ?)
-         AND NOT EXISTS (
-           SELECT 1 FROM voucher_redemptions
+         AND (
+           SELECT COUNT(*) FROM voucher_redemptions
            WHERE voucher_id = ? AND user_id = ?
+         ) < ?
+         AND (
+           ? = 0 OR NOT EXISTS (
+             SELECT 1 FROM voucher_redemptions
+             WHERE voucher_id = ? AND user_id = ? AND created_at > datetime(?, ?)
+           )
          )`
-    ).bind(now, voucher.id, now, voucher.id, user.id),
+    ).bind(
+      now,
+      voucher.id,
+      now,
+      voucher.id,
+      user.id,
+      perUserLimit,
+      cooldownSeconds,
+      voucher.id,
+      user.id,
+      now,
+      `-${cooldownSeconds} seconds`
+    ),
     c.env.DB.prepare(
       `INSERT INTO voucher_redemptions (id, voucher_id, user_id, coins_granted, created_at)
        SELECT ?, ?, ?, ?, ? WHERE changes() = 1`
@@ -397,7 +419,7 @@ app.post("/vouchers/redeem", requireUser, async (c) => {
   ]);
 
   if ((batch[0]?.meta?.changes || 0) !== 1) {
-    return fail("Voucher was already used or limit reached", "voucher_unavailable", 409);
+    return fail("Voucher was already used, on cooldown, or limit reached", "voucher_unavailable", 409);
   }
 
   return c.json(ok({ coins: voucher.coins }));
@@ -409,7 +431,8 @@ app.get("/admin/overview", requireAdmin, async (c) => {
       `SELECT
          COUNT(*) AS count,
          COALESCE(SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END), 0) AS enabled_count
-       FROM minecraft_actions`
+       FROM minecraft_actions
+       WHERE deleted_at IS NULL`
     ).first(),
     c.env.DB.prepare(
       `SELECT
@@ -457,7 +480,7 @@ app.get("/admin/overview", requireAdmin, async (c) => {
 
 app.get("/admin/actions", requireAdmin, async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT * FROM minecraft_actions ORDER BY created_at DESC"
+    "SELECT * FROM minecraft_actions WHERE deleted_at IS NULL ORDER BY created_at DESC"
   ).all();
   return c.json(ok({ actions: mapActions(rows.results || [], true) }));
 });
@@ -475,17 +498,18 @@ app.post("/admin/actions", requireAdmin, async (c) => {
       command: commands[0],
       commands,
       commandMode: normalizeCommandMode(body.commandMode),
-      repeatCount: requireInt(body.repeatCount || 1, "repeatCount", 1, 20),
-      repeatDelayMs: requireInt(body.repeatDelayMs || 0, "repeatDelayMs", 0, 600000),
+      randomCount: requireInt(body.randomCount || 1, "randomCount", 1, 20),
+      repeatCount: 1,
+      repeatDelayMs: 0,
       stepDelayMs: requireInt(body.stepDelayMs || 0, "stepDelayMs", 0, 600000),
       bannerUrl: normalizeUrl(body.bannerUrl),
-      cooldownSeconds: requireInt(body.cooldownSeconds || 0, "cooldownSeconds", 0, 86400)
+      cooldownSeconds: 0
     };
     await c.env.DB.prepare(
       `INSERT INTO minecraft_actions
        (id, title, description, price, command, command_plan, command_mode, repeat_count,
-        repeat_delay_ms, step_delay_ms, banner_url, cooldown_seconds, is_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        repeat_delay_ms, step_delay_ms, random_count, banner_url, cooldown_seconds, is_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).bind(
       row.id,
       row.title,
@@ -497,6 +521,7 @@ app.post("/admin/actions", requireAdmin, async (c) => {
       row.repeatCount,
       row.repeatDelayMs,
       row.stepDelayMs,
+      row.randomCount,
       row.bannerUrl,
       row.cooldownSeconds,
       now,
@@ -522,11 +547,12 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
         ? parseCommandPlan(existing.command_plan, existing.command)
         : normalizeCommandPlan(body.commands, body.command),
       commandMode: body.commandMode === undefined ? existing.command_mode : normalizeCommandMode(body.commandMode),
-      repeatCount: body.repeatCount === undefined ? existing.repeat_count : requireInt(body.repeatCount, "repeatCount", 1, 20),
-      repeatDelayMs: body.repeatDelayMs === undefined ? existing.repeat_delay_ms : requireInt(body.repeatDelayMs, "repeatDelayMs", 0, 600000),
+      randomCount: body.randomCount === undefined ? existing.random_count || 1 : requireInt(body.randomCount, "randomCount", 1, 20),
+      repeatCount: 1,
+      repeatDelayMs: 0,
       stepDelayMs: body.stepDelayMs === undefined ? existing.step_delay_ms : requireInt(body.stepDelayMs, "stepDelayMs", 0, 600000),
       bannerUrl: body.bannerUrl === undefined ? existing.banner_url : normalizeUrl(body.bannerUrl),
-      cooldownSeconds: body.cooldownSeconds === undefined ? existing.cooldown_seconds : requireInt(body.cooldownSeconds, "cooldownSeconds", 0, 86400),
+      cooldownSeconds: 0,
       isEnabled: body.isEnabled === undefined ? existing.is_enabled : body.isEnabled ? 1 : 0
     };
     next.command = next.commands[0];
@@ -534,7 +560,7 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
     await c.env.DB.prepare(
       `UPDATE minecraft_actions
        SET title = ?, description = ?, price = ?, command = ?, command_plan = ?, command_mode = ?,
-           repeat_count = ?, repeat_delay_ms = ?, step_delay_ms = ?, banner_url = ?,
+           repeat_count = ?, repeat_delay_ms = ?, step_delay_ms = ?, random_count = ?, banner_url = ?,
            cooldown_seconds = ?, is_enabled = ?, updated_at = ?
        WHERE id = ?`
     ).bind(
@@ -547,6 +573,7 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
       next.repeatCount,
       next.repeatDelayMs,
       next.stepDelayMs,
+      next.randomCount,
       next.bannerUrl,
       next.cooldownSeconds,
       next.isEnabled,
@@ -561,8 +588,8 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
 
 app.delete("/admin/actions/:id", requireAdmin, async (c) => {
   await c.env.DB.prepare(
-    "UPDATE minecraft_actions SET is_enabled = 0, updated_at = ? WHERE id = ?"
-  ).bind(new Date().toISOString(), c.req.param("id")).run();
+    "UPDATE minecraft_actions SET is_enabled = 0, deleted_at = ?, updated_at = ? WHERE id = ?"
+  ).bind(new Date().toISOString(), new Date().toISOString(), c.req.param("id")).run();
   return c.json(ok());
 });
 
@@ -581,13 +608,27 @@ app.post("/admin/vouchers", requireAdmin, async (c) => {
       code: normalizeCode(requireString(body.code, "code", 3, 64)),
       coins: requireInt(body.coins, "coins", 1),
       maxRedemptions: requireInt(body.maxRedemptions || 1, "maxRedemptions", 1, 100000),
+      perUserLimit: requireInt(body.perUserLimit || 1, "perUserLimit", 1, 100000),
+      perUserCooldownSeconds: requireInt(body.perUserCooldownSeconds || 0, "perUserCooldownSeconds", 0, 31536000),
       expiresAt: optionalDate(body.expiresAt)
     };
     await c.env.DB.prepare(
       `INSERT INTO vouchers
-       (id, code, coins, max_redemptions, redeemed_count, expires_at, is_active, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 0, ?, 1, ?, ?, ?)`
-    ).bind(row.id, row.code, row.coins, row.maxRedemptions, row.expiresAt, user.id, now, now).run();
+       (id, code, coins, max_redemptions, redeemed_count, per_user_limit, per_user_cooldown_seconds,
+        expires_at, is_active, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?, ?, 1, ?, ?, ?)`
+    ).bind(
+      row.id,
+      row.code,
+      row.coins,
+      row.maxRedemptions,
+      row.perUserLimit,
+      row.perUserCooldownSeconds,
+      row.expiresAt,
+      user.id,
+      now,
+      now
+    ).run();
     return c.json(ok({ voucher: row }), 201);
   } catch (err) {
     return fail(err.message, "validation_error", 400);
@@ -600,9 +641,15 @@ app.patch("/admin/vouchers/:id", requireAdmin, async (c) => {
   if (!existing) return fail("Voucher not found", "not_found", 404);
   await c.env.DB.prepare(
     `UPDATE vouchers
-     SET is_active = ?, updated_at = ?
+     SET is_active = ?, per_user_limit = ?, per_user_cooldown_seconds = ?, updated_at = ?
      WHERE id = ?`
-  ).bind(body.isActive === undefined ? existing.is_active : body.isActive ? 1 : 0, new Date().toISOString(), existing.id).run();
+  ).bind(
+    body.isActive === undefined ? existing.is_active : body.isActive ? 1 : 0,
+    body.perUserLimit === undefined ? existing.per_user_limit || 1 : requireInt(body.perUserLimit, "perUserLimit", 1, 100000),
+    body.perUserCooldownSeconds === undefined ? existing.per_user_cooldown_seconds || 0 : requireInt(body.perUserCooldownSeconds, "perUserCooldownSeconds", 0, 31536000),
+    new Date().toISOString(),
+    existing.id
+  ).run();
   return c.json(ok());
 });
 
@@ -611,9 +658,6 @@ app.delete("/admin/vouchers/:id", requireAdmin, async (c) => {
     "SELECT * FROM vouchers WHERE id = ? AND deleted_at IS NULL"
   ).bind(c.req.param("id")).first();
   if (!existing) return fail("Voucher not found", "not_found", 404);
-  if (existing.redeemed_count < existing.max_redemptions) {
-    return fail("Voucher can be deleted only after all activations are used", "voucher_not_fully_used", 409);
-  }
 
   await c.env.DB.prepare(
     "UPDATE vouchers SET is_active = 0, deleted_at = ?, updated_at = ? WHERE id = ?"
@@ -690,6 +734,12 @@ app.post("/bridge/flush", requireAdmin, async (c) => {
   return c.json(ok(await response.json()));
 });
 
+function apiOrigin(c) {
+  const requestOrigin = new URL(c.req.url).origin;
+  if (requestOrigin.endsWith(".workers.dev")) return requestOrigin;
+  return c.env.API_ORIGIN || requestOrigin;
+}
+
 function renderCommand(template, user) {
   return template
     .replaceAll("{user}", sanitizeCommandPart(user.name || user.email))
@@ -699,23 +749,26 @@ function renderCommand(template, user) {
 function renderCommandSteps(action, user) {
   const commands = parseCommandPlan(action.command_plan, action.command);
   const mode = normalizeCommandMode(action.command_mode || "sequence");
-  const repeatCount = clampNumber(action.repeat_count || 1, 1, 20);
-  const repeatDelayMs = clampNumber(action.repeat_delay_ms || 0, 0, 600000);
   const stepDelayMs = clampNumber(action.step_delay_ms || 0, 0, 600000);
-  const steps = [];
-
-  for (let repeat = 0; repeat < repeatCount; repeat += 1) {
-    const currentCommands = mode === "random"
-      ? [commands[Math.floor(Math.random() * commands.length)]]
-      : commands;
-
-    currentCommands.forEach((command, index) => {
-      const delayMs = steps.length === 0 ? 0 : index === 0 ? repeatDelayMs : stepDelayMs;
-      steps.push({ command: renderCommand(command, user), delayMs });
-    });
-  }
+  const randomCount = clampNumber(action.random_count || 1, 1, commands.length || 1);
+  const currentCommands = mode === "random"
+    ? shuffle(commands).slice(0, randomCount)
+    : commands;
+  const steps = currentCommands.map((command, index) => ({
+    command: renderCommand(command, user),
+    delayMs: index === 0 ? 0 : stepDelayMs
+  }));
 
   return steps.slice(0, 120);
+}
+
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[target]] = [copy[target], copy[index]];
+  }
+  return copy;
 }
 
 function normalizeCommandPlan(commands, fallbackCommand) {
@@ -752,7 +805,8 @@ function normalizeCommandMode(value) {
 function normalizeUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
-  if (raw.length > 500) throw new Error("bannerUrl is too long");
+  if (raw.length > 950000) throw new Error("bannerUrl is too long");
+  if (raw.startsWith("data:image/")) return raw;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:" && url.protocol !== "http:") {
@@ -789,9 +843,8 @@ function mapActions(rows, includeCommand = false) {
     price: row.price,
     cooldownSeconds: row.cooldown_seconds,
     commandMode: row.command_mode || "sequence",
-    repeatCount: row.repeat_count || 1,
-    repeatDelayMs: row.repeat_delay_ms || 0,
     stepDelayMs: row.step_delay_ms || 0,
+    randomCount: row.random_count || 1,
     bannerUrl: row.banner_url,
     commandCount: parseCommandPlan(row.command_plan, row.command).length,
     isEnabled: Boolean(row.is_enabled),
@@ -809,10 +862,12 @@ function mapVouchers(rows) {
     coins: row.coins,
     maxRedemptions: row.max_redemptions,
     redeemedCount: row.redeemed_count,
+    perUserLimit: row.per_user_limit || 1,
+    perUserCooldownSeconds: row.per_user_cooldown_seconds || 0,
     expiresAt: row.expires_at,
     isActive: Boolean(row.is_active),
     isUsed: row.redeemed_count >= row.max_redemptions,
-    canDelete: row.redeemed_count >= row.max_redemptions,
+    canDelete: true,
     createdAt: row.created_at
   }));
 }

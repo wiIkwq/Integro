@@ -574,7 +574,8 @@ textarea:focus {
 }
 
 .input-with-button,
-.input-icon {
+.input-icon,
+.upload-box {
   display: flex;
   gap: 10px;
 }
@@ -600,6 +601,50 @@ textarea:focus {
 
 .input-icon svg {
   color: var(--muted);
+}
+
+.upload-box {
+  align-items: center;
+}
+
+.upload-box > div:last-child {
+  display: grid;
+  gap: 7px;
+}
+
+.upload-box small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.file-button {
+  position: relative;
+  width: max-content;
+  overflow: hidden;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.link-button {
+  width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.banner-preview {
+  width: 98px;
+  height: 56px;
 }
 
 .form-panel {
@@ -960,6 +1005,19 @@ code {
   border: 2px solid var(--line);
   border-radius: 0;
   background: var(--bg);
+}
+
+.user-row-button {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-row-button:hover,
+.user-row-button.open {
+  border-color: var(--accent);
+  background: var(--panel-2);
 }
 
 .admin-row > div:first-child {

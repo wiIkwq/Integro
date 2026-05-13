@@ -1,18 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Activity,
   BadgeCheck,
-  Cable,
   ChevronDown,
   Chrome,
   Coins,
   Copy,
-  EyeOff,
   Gamepad2,
   Gift,
   Image,
-  LayoutDashboard,
   Loader2,
   LogOut,
   Plus,
@@ -25,6 +21,7 @@ import {
   Ticket,
   Trash2,
   Twitch,
+  Upload,
   UserRound,
   Users,
   Wifi,
@@ -41,15 +38,13 @@ const EMPTY_ACTION_FORM = {
   price: 100,
   commandsText: "say {user} активировал интерактив",
   commandMode: "sequence",
-  repeatCount: 1,
   stepDelaySeconds: 0,
-  repeatDelaySeconds: 0,
-  cooldownSeconds: 0,
+  randomCount: 1,
   bannerUrl: ""
 };
 
 const STATUS_META = {
-  queued: { label: "В очереди", tone: "queued" },
+  queued: { label: "Отправлено", tone: "queued" },
   completed: { label: "Выполнено", tone: "completed" },
   failed: { label: "Ошибка", tone: "failed" },
   refunded: { label: "Возврат", tone: "refunded" }
@@ -69,11 +64,12 @@ function dateTime(value) {
   }).format(new Date(value));
 }
 
-function secondsLabel(seconds) {
+function cooldownLabel(seconds) {
   const value = Number(seconds) || 0;
-  if (value <= 0) return "";
+  if (value <= 0) return "без задержки";
   if (value < 60) return `${value} сек`;
-  return `${Math.round(value / 60)} мин`;
+  if (value < 3600) return `${Math.round(value / 60)} мин`;
+  return `${Math.round(value / 3600)} ч`;
 }
 
 function msLabel(ms) {
@@ -94,8 +90,16 @@ function commandsFromText(value) {
     .filter(Boolean);
 }
 
-function statusLabel(status) {
-  return STATUS_META[status]?.label || status || "Нет статуса";
+function fileToDataUrl(file, maxBytes = 700 * 1024) {
+  if (!file) return Promise.resolve("");
+  if (!file.type.startsWith("image/")) return Promise.reject(new Error("Загрузи изображение"));
+  if (file.size > maxBytes) return Promise.reject(new Error("Фото лучше сжать до 700 KB"));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function StatusPill({ status }) {
@@ -269,10 +273,12 @@ function Shell({ user, onLogout, error, children }) {
           <span>Integro</span>
         </div>
         <div className="topbar-right">
-          <div className="balance-chip">
-            <Coins size={16} />
-            {money(user.balance)} coins
-          </div>
+          {user.role !== "admin" && (
+            <div className="balance-chip">
+              <Coins size={16} />
+              {money(user.balance)} coins
+            </div>
+          )}
           <div className="profile-wrap">
             <button className="profile-chip" type="button" onClick={toggleProfile} aria-expanded={profileOpen}>
               {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={18} />}
@@ -299,7 +305,7 @@ function ProfileStats({ user, stats, error, onLogout }) {
         {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={26} />}
         <div>
           <strong>{user.name || "Профиль"}</strong>
-          <span>{user.role === "admin" ? "Админ" : "Зритель"}</span>
+          <span>{user.role === "admin" ? "Стример" : "Зритель"}</span>
         </div>
       </div>
       {error && <Notice notice={{ tone: "error", text: error }} />}
@@ -311,7 +317,7 @@ function ProfileStats({ user, stats, error, onLogout }) {
       )}
       {stats && (
         <div className="profile-stats-grid">
-          <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />
+          {user.role !== "admin" && <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />}
           <StatMini label="Пополнено" value={money(stats.totalReceived)} />
           <StatMini label="Потрачено" value={money(stats.totalSpent)} />
           <StatMini label="Команд отправил" value={stats.completedCount || 0} />
@@ -336,6 +342,7 @@ function StatMini({ label, value }) {
 
 function UserDashboard({ user, onUserChange }) {
   const [actions, setActions] = useState([]);
+  const [bridgeOnline, setBridgeOnline] = useState(false);
   const [voucher, setVoucher] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState(null);
@@ -349,6 +356,7 @@ function UserDashboard({ user, onUserChange }) {
       const [me, nextActions] = await Promise.all([api.me(), api.actions()]);
       onUserChange(me.user);
       setActions(nextActions.actions);
+      setBridgeOnline(Boolean(nextActions.bridge?.connected));
     } catch (err) {
       setNotice({ tone: "error", text: err.message });
     } finally {
@@ -420,13 +428,14 @@ function UserDashboard({ user, onUserChange }) {
         {actions.map((action, index) => {
           const lacksCoins = user.balance < action.price;
           const isBusy = busy === action.id;
+          const streamerOffline = !bridgeOnline;
           return (
             <ActionCard
               action={action}
               index={index}
               key={action.id}
-              disabled={isBusy || lacksCoins}
-              buttonText={isBusy ? "Отправляем" : lacksCoins ? "Не хватает coins" : "Запустить"}
+              disabled={isBusy || lacksCoins || streamerOffline}
+              buttonText={streamerOffline ? "Стример оффлайн" : isBusy ? "Отправляем" : lacksCoins ? "Не хватает coins" : "Запустить"}
               onClick={() => buy(action)}
             />
           );
@@ -440,8 +449,8 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
   const details = [
     action.commandCount > 1 ? `${action.commandCount} команд` : "1 команда",
-    action.commandMode === "random" ? "рандом" : "",
-    action.repeatCount > 1 ? `x${action.repeatCount}` : ""
+    action.commandMode === "random" ? `рандом ${Math.min(action.randomCount || 1, action.commandCount || 1)}` : "по очереди",
+    action.stepDelayMs > 0 ? `${msLabel(action.stepDelayMs)} задержка` : ""
   ].filter(Boolean);
 
   return (
@@ -457,7 +466,6 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
         {action.description && <p>{action.description}</p>}
         <div className="action-meta">
           {details.map((item) => <span key={item}>{item}</span>)}
-          {action.cooldownSeconds > 0 && <span>{secondsLabel(action.cooldownSeconds)}</span>}
         </div>
       </div>
       <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
@@ -488,7 +496,6 @@ function AdminDashboard({ onUserChange }) {
   const [overview, setOverview] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [bridgeBusy, setBridgeBusy] = useState(false);
 
   useEffect(() => {
     if (!message) return undefined;
@@ -524,26 +531,12 @@ function AdminDashboard({ onUserChange }) {
     refresh();
   }, []);
 
-  async function flushBridge() {
-    setBridgeBusy(true);
-    setMessage("");
-    try {
-      const result = await api.flushBridge();
-      setMessage(`Отправлено в bridge: ${result.sent || 0}`);
-      await refresh({ silent: true });
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setBridgeBusy(false);
-    }
-  }
-
   const bridgeOnline = Boolean(overview?.bridge?.connected);
   const tabs = [
     { id: "actions", label: "Команды", icon: Terminal, count: actions.length },
     { id: "vouchers", label: "Ваучеры", icon: Ticket, count: vouchers.length },
     { id: "users", label: "Пользователи", icon: Users, count: users.length },
-    { id: "queue", label: "Очередь", icon: Activity, count: purchases.length }
+    { id: "donations", label: "Донаты", icon: Zap, count: purchases.length }
   ];
 
   return (
@@ -552,8 +545,8 @@ function AdminDashboard({ onUserChange }) {
         <AnimatedPanel>
           <h1>Панель стримера</h1>
           <div className="status-row">
-            <StatusDot online={bridgeOnline} label={bridgeOnline ? "Bridge online" : "Bridge offline"} />
-            <span>{overview?.bridge?.queued || 0} в очереди</span>
+            <StatusDot online={bridgeOnline} label={bridgeOnline ? "Bridge подключен" : "Bridge отключен"} />
+            <span>{bridgeOnline ? "команды доступны зрителям" : "команды недоступны зрителям"}</span>
           </div>
         </AnimatedPanel>
         <div className="hero-actions">
@@ -561,16 +554,6 @@ function AdminDashboard({ onUserChange }) {
             <RefreshCcw size={17} className={loading ? "spin" : ""} />
             Обновить
           </button>
-          <ShinyButton
-            className="primary-action"
-            onClick={flushBridge}
-            type="button"
-            disabled={bridgeBusy || !bridgeOnline}
-            title={bridgeOnline ? "Повторно отправить очередь" : "Bridge не подключен"}
-          >
-            <Cable size={17} />
-            {bridgeBusy ? "Отправляем" : "Flush queue"}
-          </ShinyButton>
         </div>
       </section>
 
@@ -578,7 +561,7 @@ function AdminDashboard({ onUserChange }) {
         <Metric icon={Coins} label="Получено" value={money(overview?.totalReceived || 0)} />
         <Metric icon={Zap} label="Потрачено" value={money(overview?.totalSpent || 0)} />
         <Metric icon={Ticket} label="Активаций" value={overview?.voucherRedemptionsCount || 0} />
-        <Metric icon={Terminal} label="Команд куплено" value={overview?.purchasesCount || 0} />
+        <Metric icon={Terminal} label="Донатов" value={overview?.purchasesCount || 0} />
         <Metric icon={Users} label="Пользователей" value={overview?.usersCount || 0} />
         <Metric
           icon={bridgeOnline ? Wifi : WifiOff}
@@ -590,7 +573,7 @@ function AdminDashboard({ onUserChange }) {
 
       {message && <div className="notice info">{message}</div>}
 
-      <nav className="tabs" aria-label="Admin sections">
+      <nav className="tabs" aria-label="Разделы стримера">
         {tabs.map(({ id, label, icon: Icon, count }) => (
           <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} type="button">
             <Icon size={17} />
@@ -603,7 +586,7 @@ function AdminDashboard({ onUserChange }) {
       {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} />}
       {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
       {tab === "users" && <AdminUsers users={users} />}
-      {tab === "queue" && <AdminQueue purchases={purchases} />}
+      {tab === "donations" && <AdminDonations purchases={purchases} />}
     </main>
   );
 }
@@ -623,6 +606,20 @@ function AdminActions({ actions, refresh, setMessage }) {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
   const commandLines = useMemo(() => commandsFromText(form.commandsText).length, [form.commandsText]);
+  const randomLimit = Math.max(1, commandLines || 1);
+
+  async function handleBanner(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const bannerUrl = await fileToDataUrl(file);
+      setForm((current) => ({ ...current, bannerUrl }));
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      event.target.value = "";
+    }
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -635,10 +632,8 @@ function AdminActions({ actions, refresh, setMessage }) {
         price: Number(form.price),
         commands: commandsFromText(form.commandsText),
         commandMode: form.commandMode,
-        repeatCount: Number(form.repeatCount),
+        randomCount: Number(form.randomCount),
         stepDelayMs: Number(form.stepDelaySeconds) * 1000,
-        repeatDelayMs: Number(form.repeatDelaySeconds) * 1000,
-        cooldownSeconds: Number(form.cooldownSeconds),
         bannerUrl: form.bannerUrl
       });
       setForm(EMPTY_ACTION_FORM);
@@ -664,12 +659,12 @@ function AdminActions({ actions, refresh, setMessage }) {
     }
   }
 
-  async function hideAction(id) {
+  async function removeAction(id) {
     setBusyId(id);
     setMessage("");
     try {
       await api.deleteAction(id);
-      setMessage("Команда выключена");
+      setMessage("Команда удалена");
       await refresh({ silent: true });
     } catch (err) {
       setMessage(err.message);
@@ -694,22 +689,30 @@ function AdminActions({ actions, refresh, setMessage }) {
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </label>
         <label className="field">
-          <span>Баннер URL</span>
-          <div className="input-icon">
-            <Image size={16} />
-            <input value={form.bannerUrl} onChange={(e) => setForm({ ...form, bannerUrl: e.target.value })} placeholder="https://..." />
+          <span>Баннер</span>
+          <div className="upload-box">
+            <div className={`thumb banner-preview ${form.bannerUrl ? "has-image" : ""}`} style={form.bannerUrl ? { backgroundImage: `url(${form.bannerUrl})` } : undefined}>
+              {!form.bannerUrl && <Image size={20} />}
+            </div>
+            <div>
+              <label className="secondary-action compact file-button">
+                <Upload size={15} />
+                Загрузить фото
+                <input type="file" accept="image/*" onChange={handleBanner} />
+              </label>
+              <small>Лучше 1280x720, JPG/WebP до 700 KB.</small>
+              {form.bannerUrl && (
+                <button className="link-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })}>
+                  Убрать баннер
+                </button>
+              )}
+            </div>
           </div>
         </label>
-        <div className="split-inputs">
-          <label className="field">
-            <span>Цена</span>
-            <input required type="number" min="1" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-          </label>
-          <label className="field">
-            <span>Кулдаун, сек</span>
-            <input type="number" min="0" value={form.cooldownSeconds} onChange={(e) => setForm({ ...form, cooldownSeconds: e.target.value })} />
-          </label>
-        </div>
+        <label className="field">
+          <span>Цена</span>
+          <input required type="number" min="1" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+        </label>
         <label className="field">
           <span>Команды Minecraft</span>
           <textarea
@@ -740,18 +743,22 @@ function AdminActions({ actions, refresh, setMessage }) {
         </div>
         <div className="split-inputs">
           <label className="field">
-            <span>Повторы</span>
-            <input required type="number" min="1" max="20" value={form.repeatCount} onChange={(e) => setForm({ ...form, repeatCount: e.target.value })} />
-          </label>
-          <label className="field">
             <span>Между командами, сек</span>
             <input type="number" min="0" value={form.stepDelaySeconds} onChange={(e) => setForm({ ...form, stepDelaySeconds: e.target.value })} />
           </label>
+          {form.commandMode === "random" && (
+            <label className="field">
+              <span>Сколько рандомных</span>
+              <input
+                type="number"
+                min="1"
+                max={randomLimit}
+                value={Math.min(Number(form.randomCount) || 1, randomLimit)}
+                onChange={(e) => setForm({ ...form, randomCount: e.target.value })}
+              />
+            </label>
+          )}
         </div>
-        <label className="field">
-          <span>Между повторами, сек</span>
-          <input type="number" min="0" value={form.repeatDelaySeconds} onChange={(e) => setForm({ ...form, repeatDelaySeconds: e.target.value })} />
-        </label>
         <div className="form-foot">
           <span>{commandLines || 0} строк</span>
           <ShinyButton className="primary-action compact" disabled={saving}>
@@ -778,12 +785,12 @@ function AdminActions({ actions, refresh, setMessage }) {
                   <div className="row-title">
                     <strong>{action.title}</strong>
                     <span className={`state-badge ${action.isEnabled ? "on" : "off"}`}>
-                      {action.isEnabled ? "active" : "disabled"}
+                      {action.isEnabled ? "включена" : "выключена"}
                     </span>
                   </div>
                   <span>
                     {money(action.price)} coins · {action.commandCount} команд · {action.commandMode === "random" ? "рандом" : "по очереди"}
-                    {action.repeatCount > 1 ? ` · x${action.repeatCount}` : ""}
+                    {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
                   </span>
                   <code>{(action.commands || [action.command]).join(" | ")}</code>
                 </div>
@@ -793,8 +800,8 @@ function AdminActions({ actions, refresh, setMessage }) {
                   <Power size={15} />
                   {action.isEnabled ? "Выключить" : "Включить"}
                 </button>
-                <button className="icon-button danger" onClick={() => hideAction(action.id)} type="button" disabled={busyId === action.id} title="Скрыть">
-                  <EyeOff size={17} />
+                <button className="icon-button danger" onClick={() => removeAction(action.id)} type="button" disabled={busyId === action.id} title="Удалить">
+                  <Trash2 size={17} />
                 </button>
               </div>
             </div>
@@ -806,7 +813,7 @@ function AdminActions({ actions, refresh, setMessage }) {
 }
 
 function AdminVouchers({ vouchers, refresh, setMessage }) {
-  const [form, setForm] = useState({ code: "", coins: 500, maxRedemptions: 1 });
+  const [form, setForm] = useState({ code: "", coins: 500, maxRedemptions: 1, perUserLimit: 1, perUserCooldownSeconds: 0 });
   const [suggestedCode, setSuggestedCode] = useState(generateVoucherCode);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
@@ -819,9 +826,11 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
       await api.createVoucher({
         code: form.code,
         coins: Number(form.coins),
-        maxRedemptions: Number(form.maxRedemptions)
+        maxRedemptions: Number(form.maxRedemptions),
+        perUserLimit: Number(form.perUserLimit),
+        perUserCooldownSeconds: Number(form.perUserCooldownSeconds)
       });
-      setForm({ code: "", coins: 500, maxRedemptions: 1 });
+      setForm({ code: "", coins: 500, maxRedemptions: 1, perUserLimit: 1, perUserCooldownSeconds: 0 });
       setSuggestedCode(generateVoucherCode());
       setMessage("Ваучер создан");
       await refresh({ silent: true });
@@ -896,8 +905,18 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
             <input required type="number" min="1" value={form.coins} onChange={(e) => setForm({ ...form, coins: e.target.value })} />
           </label>
           <label className="field">
-            <span>Активаций</span>
+            <span>Всего активаций</span>
             <input required type="number" min="1" value={form.maxRedemptions} onChange={(e) => setForm({ ...form, maxRedemptions: e.target.value })} />
+          </label>
+        </div>
+        <div className="split-inputs">
+          <label className="field">
+            <span>На аккаунт</span>
+            <input required type="number" min="1" value={form.perUserLimit} onChange={(e) => setForm({ ...form, perUserLimit: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>Задержка, сек</span>
+            <input type="number" min="0" value={form.perUserCooldownSeconds} onChange={(e) => setForm({ ...form, perUserCooldownSeconds: e.target.value })} />
           </label>
         </div>
         <ShinyButton className="primary-action compact" disabled={saving}>
@@ -919,11 +938,12 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
                 <div className="row-title">
                   <strong>{voucher.code}</strong>
                   <span className={`state-badge ${voucher.isUsed ? "used" : voucher.isActive ? "on" : "off"}`}>
-                    {voucher.isUsed ? "использован" : voucher.isActive ? "active" : "disabled"}
+                    {voucher.isUsed ? "использован" : voucher.isActive ? "включен" : "выключен"}
                   </span>
                 </div>
                 <span>
-                  {money(voucher.coins)} coins · {voucher.redeemedCount}/{voucher.maxRedemptions}
+                  {money(voucher.coins)} coins · {voucher.redeemedCount}/{voucher.maxRedemptions} · на аккаунт {voucher.perUserLimit}
+                  {voucher.perUserCooldownSeconds > 0 ? ` · задержка ${cooldownLabel(voucher.perUserCooldownSeconds)}` : ""}
                 </span>
               </div>
               <div className="row-actions">
@@ -938,8 +958,8 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
                   className="icon-button danger"
                   onClick={() => remove(voucher)}
                   type="button"
-                  disabled={busyId === voucher.id || !voucher.canDelete}
-                  title={voucher.canDelete ? "Удалить ваучер" : "Удаление доступно после всех активаций"}
+                  disabled={busyId === voucher.id}
+                  title="Удалить ваучер"
                 >
                   <Trash2 size={17} />
                 </button>
@@ -953,12 +973,7 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
 }
 
 function AdminUsers({ users }) {
-  const totals = users.reduce((acc, user) => ({
-    balance: acc.balance + (user.balance || 0),
-    received: acc.received + (user.totalReceived || 0),
-    spent: acc.spent + (user.totalSpent || 0),
-    commands: acc.commands + (user.purchasesCount || 0)
-  }), { balance: 0, received: 0, spent: 0, commands: 0 });
+  const [selectedId, setSelectedId] = useState("");
 
   return (
     <section className="panel">
@@ -966,53 +981,51 @@ function AdminUsers({ users }) {
         <Users size={19} />
         <h2>Пользователи</h2>
       </div>
-      <div className="stats-strip">
-        <StatMini label="Баланс в сумме" value={`${money(totals.balance)} coins`} />
-        <StatMini label="Получено" value={money(totals.received)} />
-        <StatMini label="Потрачено" value={money(totals.spent)} />
-        <StatMini label="Команд" value={totals.commands} />
-      </div>
       <div className="table-list">
         {users.length === 0 && <EmptyState icon={Users} title="Пользователей нет" text="После входа зрители появятся здесь." />}
-        {users.map((user) => (
-          <div className="user-row" key={user.id}>
-            <div className="user-line">
-              {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
-              <div>
-                <strong>{user.name || "Зритель"}</strong>
-                <span>{user.role === "admin" ? "Админ" : "Зритель"}</span>
+        {users.map((user) => {
+          const open = selectedId === user.id;
+          return (
+            <button className={`user-row user-row-button ${open ? "open" : ""}`} key={user.id} type="button" onClick={() => setSelectedId(open ? "" : user.id)}>
+              <div className="user-line">
+                {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
+                <div>
+                  <strong>{user.name || "Зритель"}</strong>
+                  <span>{user.role === "admin" ? "Стример" : "Зритель"}</span>
+                </div>
               </div>
-            </div>
-            <div className="user-stats">
-              <StatMini label="Баланс" value={`${money(user.balance)} coins`} />
-              <StatMini label="Получено" value={money(user.totalReceived)} />
-              <StatMini label="Потрачено" value={money(user.totalSpent)} />
-              <StatMini label="Команд" value={user.purchasesCount || 0} />
-            </div>
-          </div>
-        ))}
+              {open && (
+                <div className="user-stats">
+                  <StatMini label="Баланс" value={`${money(user.balance)} coins`} />
+                  <StatMini label="Получил" value={money(user.totalReceived)} />
+                  <StatMini label="Потратил" value={money(user.totalSpent)} />
+                  <StatMini label="Донатов" value={user.purchasesCount || 0} />
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function AdminQueue({ purchases }) {
+function AdminDonations({ purchases }) {
   return (
     <section className="panel">
       <div className="panel-title">
-        <LayoutDashboard size={19} />
-        <h2>Очередь команд</h2>
+        <Zap size={19} />
+        <h2>Последние донаты</h2>
       </div>
       <div className="table-list">
-        {purchases.length === 0 && <EmptyState icon={Activity} title="Очередь пустая" text="Новые команды появятся здесь." />}
+        {purchases.length === 0 && <EmptyState icon={Zap} title="Донатов пока нет" text="Новые покупки команд появятся здесь." />}
         {purchases.map((purchase) => (
           <div className="admin-row" key={purchase.id}>
             <div>
               <strong>{purchase.title}</strong>
               <span>
-                {purchase.userName || "Зритель"} · {dateTime(purchase.createdAt)}
+                {purchase.userName || "Зритель"} · {money(purchase.amount)} coins · {dateTime(purchase.createdAt)}
               </span>
-              <code>{purchase.commandSummary || purchase.commandSnapshot}</code>
               {purchase.errorMessage && <small className="row-error">{purchase.errorMessage}</small>}
             </div>
             <StatusPill status={purchase.status} />

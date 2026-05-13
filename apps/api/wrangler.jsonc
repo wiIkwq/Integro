@@ -30,6 +30,7 @@
     "ENVIRONMENT": "production",
     "WEB_ORIGIN": "https://integro.bohdan.lol",
     "API_ORIGIN": "https://integro.bohdan.lol",
+    "LEGACY_WEB_ORIGINS": "https://integro-web.pages.dev",
     "ADMIN_GOOGLE_EMAILS": "ihnatenko.bogdan@gmail.com,Bogdan3000tm@gmail.com,DiFF1x@mail.ru",
     "COOKIE_SAMESITE": "Lax"
   },

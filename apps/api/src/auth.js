@@ -116,8 +116,14 @@ export function safeReturnTo(env, value) {
   if (!value) return fallback;
   try {
     const url = new URL(value, fallback);
-    const webOrigin = new URL(fallback).origin;
-    if (url.origin === webOrigin) return url.toString();
+    const allowedOrigins = [
+      fallback,
+      env.API_ORIGIN,
+      ...String(env.LEGACY_WEB_ORIGINS || "").split(",").map((item) => item.trim())
+    ]
+      .filter(Boolean)
+      .map((origin) => new URL(origin).origin);
+    if (allowedOrigins.includes(url.origin)) return url.toString();
   } catch {
     return fallback;
   }
