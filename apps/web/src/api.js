@@ -1,10 +1,12 @@
 const LOCAL_API_BASE = "http://localhost:8787";
-const PRODUCTION_API_BASE = "https://integro-api.bogdan3000tm1331.workers.dev";
+const LEGACY_API_BASE = "https://integro-api.bogdan3000tm1331.workers.dev";
 
 function defaultApiBase() {
   if (typeof window === "undefined") return LOCAL_API_BASE;
   const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-  return localHosts.has(window.location.hostname) ? LOCAL_API_BASE : PRODUCTION_API_BASE;
+  if (localHosts.has(window.location.hostname)) return LOCAL_API_BASE;
+  if (window.location.hostname.endsWith(".pages.dev")) return LEGACY_API_BASE;
+  return "";
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || defaultApiBase();

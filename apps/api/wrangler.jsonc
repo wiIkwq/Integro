@@ -3,12 +3,35 @@
   "name": "integro-api",
   "main": "src/index.js",
   "compatibility_date": "2026-05-12",
+  "workers_dev": true,
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/health",
+      "/me",
+      "/me/*",
+      "/auth/*",
+      "/actions",
+      "/actions/*",
+      "/vouchers/*",
+      "/admin/*",
+      "/bridge/*"
+    ]
+  },
+  "routes": [
+    {
+      "pattern": "integro.bohdan.lol",
+      "custom_domain": true
+    }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
-    "WEB_ORIGIN": "https://integro-web.pages.dev",
-    "API_ORIGIN": "https://integro-api.bogdan3000tm1331.workers.dev",
+    "WEB_ORIGIN": "https://integro.bohdan.lol",
+    "API_ORIGIN": "https://integro.bohdan.lol",
     "ADMIN_GOOGLE_EMAILS": "ihnatenko.bogdan@gmail.com,Bogdan3000tm@gmail.com,DiFF1x@mail.ru",
-    "COOKIE_SAMESITE": "None"
+    "COOKIE_SAMESITE": "Lax"
   },
   "d1_databases": [
     {
