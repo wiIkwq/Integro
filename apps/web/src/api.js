@@ -38,6 +38,10 @@ export const api = {
     const returnTo = encodeURIComponent(window.location.origin);
     return `${API_BASE}/auth/google/start?returnTo=${returnTo}`;
   },
+  twitchLoginUrl() {
+    const returnTo = encodeURIComponent(window.location.origin);
+    return `${API_BASE}/auth/twitch/start?returnTo=${returnTo}`;
+  },
   me: () => request("/me"),
   logout: () => request("/auth/logout", { method: "POST" }),
   actions: () => request("/actions"),

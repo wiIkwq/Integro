@@ -119,6 +119,109 @@ app.get("/auth/google/callback", async (c) => {
   return c.redirect(expected.returnTo || c.env.WEB_ORIGIN || "/");
 });
 
+app.get("/auth/twitch/start", async (c) => {
+  if (!c.env.TWITCH_CLIENT_ID || !c.env.TWITCH_CLIENT_SECRET) {
+    const returnTo = new URL(safeReturnTo(c.env, c.req.query("returnTo")));
+    returnTo.searchParams.set("error", "twitch_oauth_not_configured");
+    return c.redirect(returnTo.toString());
+  }
+
+  const state = randomToken();
+  const returnTo = safeReturnTo(c.env, c.req.query("returnTo"));
+  setOauthStateCookie(c, state, returnTo);
+
+  const redirectUri = `${c.env.API_ORIGIN}/auth/twitch/callback`;
+  const params = new URLSearchParams({
+    client_id: c.env.TWITCH_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "user:read:email",
+    state,
+    force_verify: "true"
+  });
+
+  return c.redirect(`https://id.twitch.tv/oauth2/authorize?${params.toString()}`);
+});
+
+app.get("/auth/twitch/callback", async (c) => {
+  const expected = readOauthStateCookie(c);
+  const state = c.req.query("state");
+  const code = c.req.query("code");
+
+  if (!expected || expected.state !== state || !code) {
+    return fail("Invalid OAuth state", "invalid_oauth_state", 400);
+  }
+
+  clearOauthStateCookie(c);
+  const redirectUri = `${c.env.API_ORIGIN}/auth/twitch/callback`;
+  const tokenResponse = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: c.env.TWITCH_CLIENT_ID,
+      client_secret: c.env.TWITCH_CLIENT_SECRET,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+      code
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    return fail("Twitch token exchange failed", "oauth_exchange_failed", 502);
+  }
+
+  const tokenPayload = await tokenResponse.json();
+  const profileResponse = await fetch("https://api.twitch.tv/helix/users", {
+    headers: {
+      "Client-Id": c.env.TWITCH_CLIENT_ID,
+      Authorization: `Bearer ${tokenPayload.access_token}`
+    }
+  });
+
+  if (!profileResponse.ok) {
+    return fail("Twitch profile fetch failed", "oauth_profile_failed", 502);
+  }
+
+  const profilePayload = await profileResponse.json();
+  const profile = profilePayload?.data?.[0];
+  if (!profile?.id) return fail("Twitch profile is empty", "oauth_profile_failed", 502);
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const providerSub = `twitch:${profile.id}`;
+  const realEmail = String(profile.email || "").trim().toLowerCase();
+  const fallbackEmail = `twitch-${profile.id}@integro.local`;
+  const conflictingEmail = realEmail
+    ? await c.env.DB.prepare("SELECT id FROM users WHERE email = ? AND google_sub != ?").bind(realEmail, providerSub).first()
+    : null;
+  const email = realEmail && !conflictingEmail ? realEmail : fallbackEmail;
+  const role = realEmail && isAdminEmail(c.env, realEmail) ? "admin" : "user";
+
+  await c.env.DB.prepare(
+    `INSERT INTO users (id, google_sub, email, name, avatar_url, role, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(google_sub) DO UPDATE SET
+       email = excluded.email,
+       name = excluded.name,
+       avatar_url = excluded.avatar_url,
+       role = excluded.role,
+       updated_at = excluded.updated_at`
+  ).bind(
+    id,
+    providerSub,
+    email,
+    profile.display_name || profile.login || "Twitch user",
+    profile.profile_image_url || null,
+    role,
+    now,
+    now
+  ).run();
+
+  const user = await c.env.DB.prepare("SELECT id FROM users WHERE google_sub = ?").bind(providerSub).first();
+  await createSession(c, user.id);
+  return c.redirect(expected.returnTo || c.env.WEB_ORIGIN || "/");
+});
+
 app.post("/auth/logout", async (c) => {
   await clearSession(c);
   return c.json(ok());

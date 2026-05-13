@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Cable,
   ChevronDown,
+  Chrome,
   Coins,
   Copy,
   EyeOff,
@@ -23,6 +24,7 @@ import {
   Terminal,
   Ticket,
   Trash2,
+  Twitch,
   UserRound,
   Users,
   Wifi,
@@ -118,11 +120,10 @@ function EmptyState({ icon: Icon, title, text }) {
 
 function LoginScreen() {
   const error = new URLSearchParams(window.location.search).get("error");
-  const loginError = error === "oauth_not_configured"
-    ? "Google OAuth еще не подключен на сервере."
-    : error
-      ? "Не удалось завершить вход. Попробуй еще раз."
-      : "";
+  const loginError = {
+    oauth_not_configured: "Google OAuth еще не подключен на сервере.",
+    twitch_oauth_not_configured: "Twitch OAuth еще не подключен на сервере."
+  }[error] || (error ? "Не удалось завершить вход. Попробуй еще раз." : "");
 
   return (
     <main className="login-shell">
@@ -131,12 +132,18 @@ function LoginScreen() {
           <div className="brand-mark">I</div>
           <span>Integro</span>
         </div>
-        <h1>Команды стримера для Minecraft</h1>
-        <p>Войди через Google, введи ваучер и запускай доступные действия во время стрима.</p>
-        <ShinyButton as="a" className="primary-action login-action" href={api.loginUrl()}>
-          <UserRound size={18} />
-          Войти через Google
-        </ShinyButton>
+        <h1>Вход на стрим</h1>
+        <p>Выбери аккаунт и переходи к ваучерам и командам Minecraft.</p>
+        <div className="login-auth-grid">
+          <ShinyButton as="a" className="auth-provider google" href={api.loginUrl()}>
+            <Chrome size={20} />
+            Google
+          </ShinyButton>
+          <ShinyButton as="a" className="auth-provider twitch" href={api.twitchLoginUrl()}>
+            <Twitch size={20} />
+            Twitch
+          </ShinyButton>
+        </div>
         {loginError && <Notice notice={{ tone: "error", text: loginError }} />}
       </SpotlightCard>
     </main>
