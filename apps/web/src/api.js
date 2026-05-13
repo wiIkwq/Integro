@@ -1,4 +1,13 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8787";
+const LOCAL_API_BASE = "http://localhost:8787";
+const PRODUCTION_API_BASE = "https://integro-api.bogdan3000tm1331.workers.dev";
+
+function defaultApiBase() {
+  if (typeof window === "undefined") return LOCAL_API_BASE;
+  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  return localHosts.has(window.location.hostname) ? LOCAL_API_BASE : PRODUCTION_API_BASE;
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE || defaultApiBase();
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -53,5 +62,6 @@ export const api = {
   updateVoucher: (id, body) =>
     request(`/admin/vouchers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   adminUsers: () => request("/admin/users"),
-  adminPurchases: () => request("/admin/purchases")
+  adminPurchases: () => request("/admin/purchases"),
+  flushBridge: () => request("/bridge/flush", { method: "POST" })
 };
