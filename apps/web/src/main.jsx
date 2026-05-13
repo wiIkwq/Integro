@@ -125,17 +125,17 @@ function AppBackground() {
     <div className="pixel-snow-shell" aria-hidden="true">
       <PixelSnow
         color="#ffffff"
-        flakeSize={0.007}
+        flakeSize={0.005}
         minFlakeSize={1}
-        pixelResolution={275}
+        pixelResolution={400}
         speed={0.1}
-        depthFade={15}
-        farPlane={15}
-        brightness={1.6}
-        gamma={0.7}
-        density={0.2}
+        depthFade={12}
+        farPlane={45}
+        brightness={1}
+        gamma={0.45}
+        density={0.15}
         variant="square"
-        direction={115}
+        direction={125}
       />
     </div>
   );
@@ -274,18 +274,18 @@ function Shell({ user, onLogout, error, children }) {
             {money(user.balance)} coins
           </div>
           <div className="profile-wrap">
-            <button className="profile-chip" type="button" onClick={toggleProfile}>
+            <button className="profile-chip" type="button" onClick={toggleProfile} aria-expanded={profileOpen}>
               {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={18} />}
               <span>{user.name || "Профиль"}</span>
               {user.role === "admin" && <Shield size={15} />}
               <ChevronDown size={15} />
             </button>
-            {profileOpen && (
-              <ProfileStats user={user} stats={stats} error={statsError} onLogout={onLogout} />
-            )}
           </div>
         </div>
       </header>
+      {profileOpen && (
+        <ProfileStats user={user} stats={stats} error={statsError} onLogout={onLogout} />
+      )}
       {error && <div className="notice error shell-notice">{error}</div>}
       {children}
     </div>
@@ -312,11 +312,9 @@ function ProfileStats({ user, stats, error, onLogout }) {
       {stats && (
         <div className="profile-stats-grid">
           <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />
-          <StatMini label="Получено" value={money(stats.totalReceived)} />
+          <StatMini label="Пополнено" value={money(stats.totalReceived)} />
           <StatMini label="Потрачено" value={money(stats.totalSpent)} />
-          <StatMini label="Возврат" value={money(stats.totalRefunded)} />
-          <StatMini label="Команд" value={stats.purchasesCount || 0} />
-          <StatMini label="Выполнено" value={stats.completedCount || 0} />
+          <StatMini label="Команд отправил" value={stats.completedCount || 0} />
         </div>
       )}
       <button className="secondary-action profile-logout" type="button" onClick={onLogout}>

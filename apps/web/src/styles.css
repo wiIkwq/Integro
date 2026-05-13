@@ -110,7 +110,7 @@ a {
   top: 0;
   z-index: 30;
   display: flex;
-  min-height: 70px;
+  height: 70px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -264,6 +264,14 @@ a {
   margin-top: 12px;
 }
 
+.profile-logout:not(:disabled):hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #070807;
+  box-shadow: 6px 6px 0 rgba(255, 99, 138, 0.45);
+  transform: translate(-2px, -2px);
+}
+
 .login-shell {
   position: relative;
   z-index: 1;
@@ -372,7 +380,7 @@ a {
   display: flex;
   min-height: 54px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-bottom: 12px;
 }
 
@@ -392,12 +400,19 @@ a {
 
 .voucher-strip {
   display: flex;
-  width: min(330px, 100%);
+  width: min(420px, 100%);
   gap: 10px;
 }
 
 .voucher-strip input {
+  flex: 1 1 180px;
   min-width: 0;
+}
+
+.voucher-strip .primary-action {
+  flex: 0 0 auto;
+  min-width: 158px;
+  padding-inline: 14px;
 }
 
 .hero-actions,
@@ -804,9 +819,10 @@ code {
   padding: 10px 12px;
   border: 2px solid rgba(158, 195, 255, 0.4);
   border-radius: 0;
-  background: var(--blue-soft);
+  background: rgba(16, 25, 30, 0.62);
   color: #c9ddff;
   box-shadow: var(--shadow-small);
+  backdrop-filter: blur(16px);
   font-weight: 800;
   line-height: 1.35;
   animation: toast-in 0.24s ease both;
@@ -814,19 +830,19 @@ code {
 
 .notice.success {
   border-color: rgba(80, 216, 144, 0.24);
-  background: var(--accent-soft);
+  background: rgba(16, 44, 27, 0.62);
   color: var(--accent-strong);
 }
 
 .notice.error {
   border-color: rgba(255, 92, 134, 0.24);
-  background: var(--danger-soft);
+  background: rgba(50, 19, 29, 0.62);
   color: #ffb7c9;
 }
 
 .notice.info {
   border-color: rgba(125, 178, 255, 0.2);
-  background: var(--blue-soft);
+  background: rgba(16, 25, 30, 0.62);
   color: #c9ddff;
 }
 
@@ -1181,6 +1197,11 @@ code {
   isolation: isolate;
 }
 
+.profile-popover.spotlight-card {
+  position: fixed;
+  overflow: hidden;
+}
+
 .spotlight-card::before {
   position: absolute;
   inset: 0;
@@ -1270,7 +1291,7 @@ code {
   }
 
   .viewer-bar-compact .voucher-strip {
-    width: min(330px, 100%);
+    width: min(420px, 100%);
   }
 
   .hero-actions {
@@ -1285,30 +1306,37 @@ code {
 
 @media (max-width: 780px) {
   .topbar {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    height: 70px;
+    padding-inline: 12px;
   }
 
   .topbar-right {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    width: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+
+  .topbar .balance-chip {
+    display: none;
   }
 
   .profile-wrap {
-    flex: 1 1 220px;
+    flex: 0 0 auto;
   }
 
   .profile-chip {
-    width: 100%;
-    max-width: none;
+    width: auto;
+    max-width: 190px;
   }
 
   .profile-popover {
-    top: 132px;
+    top: 76px;
     right: 12px;
-    left: 12px;
-    width: auto;
+    left: auto;
+    width: min(360px, calc(100vw - 24px));
   }
 
   .viewer-bar h1,
@@ -1326,7 +1354,7 @@ code {
   }
 
   .viewer-bar-compact {
-    justify-content: stretch;
+    justify-content: flex-start;
   }
 
   .viewer-bar-compact .voucher-strip {
@@ -1372,7 +1400,11 @@ code {
   }
 
   .balance-chip {
-    width: 100%;
+    max-width: 150px;
+  }
+
+  .profile-chip {
+    max-width: 155px;
   }
 
   .notice {
