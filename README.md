@@ -40,6 +40,12 @@ npx wrangler secret put BRIDGE_TOKEN --cwd apps/api
 
 `ADMIN_GOOGLE_EMAILS`, `WEB_ORIGIN`, and `API_ORIGIN` are normal Worker vars in `apps/api/wrangler.jsonc`.
 
+Google OAuth redirect URI:
+
+```text
+https://integro-api.bogdan3000tm1331.workers.dev/auth/google/callback
+```
+
 ## First Deploy
 
 ```bash
