@@ -50,6 +50,7 @@ function EmptyState({ icon: Icon, title, text }) {
 }
 
 function LoginScreen() {
+  const error = new URLSearchParams(window.location.search).get("error");
   return (
     <main className="login-shell">
       <section className="login-panel">
@@ -66,6 +67,11 @@ function LoginScreen() {
           <UserRound size={18} />
           Войти через Google
         </a>
+        {error === "oauth_not_configured" && (
+          <div className="notice">
+            Google OAuth еще не подключен на сервере.
+          </div>
+        )}
       </section>
       <section className="feature-strip">
         <div>

@@ -40,7 +40,9 @@ app.get("/me", async (c) => {
 
 app.get("/auth/google/start", async (c) => {
   if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
-    return fail("Google OAuth is not configured", "oauth_not_configured", 500);
+    const returnTo = new URL(safeReturnTo(c.env, c.req.query("returnTo")));
+    returnTo.searchParams.set("error", "oauth_not_configured");
+    return c.redirect(returnTo.toString());
   }
 
   const state = randomToken();
