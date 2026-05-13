@@ -7,7 +7,7 @@
     "ENVIRONMENT": "production",
     "WEB_ORIGIN": "https://integro-web.pages.dev",
     "API_ORIGIN": "https://integro-api.bogdan3000tm1331.workers.dev",
-    "ADMIN_GOOGLE_EMAILS": "ihnatenko.bogdan@gmail.com,Bogdan3000tm@gmail.com",
+    "ADMIN_GOOGLE_EMAILS": "ihnatenko.bogdan@gmail.com,Bogdan3000tm@gmail.com,DiFF1x@mail.ru",
     "COOKIE_SAMESITE": "None"
   },
   "d1_databases": [

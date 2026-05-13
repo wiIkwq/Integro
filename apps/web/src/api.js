@@ -49,6 +49,7 @@ export const api = {
     }),
   transactions: () => request("/me/transactions"),
   purchases: () => request("/me/purchases"),
+  stats: () => request("/me/stats"),
   adminOverview: () => request("/admin/overview"),
   adminActions: () => request("/admin/actions"),
   createAction: (body) =>
@@ -61,6 +62,7 @@ export const api = {
     request("/admin/vouchers", { method: "POST", body: JSON.stringify(body) }),
   updateVoucher: (id, body) =>
     request(`/admin/vouchers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteVoucher: (id) => request(`/admin/vouchers/${id}`, { method: "DELETE" }),
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
   flushBridge: () => request("/bridge/flush", { method: "POST" })

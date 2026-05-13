@@ -111,11 +111,13 @@ export class BridgeRoom {
 
     if (!row) return false;
 
+    const commands = parseCommandSnapshot(row.command_snapshot);
     const event = {
       type: "execute",
       id: row.id,
       title: row.title,
-      command: row.command_snapshot,
+      command: commands[0]?.command || row.command_snapshot,
+      commands,
       amount: row.amount,
       userName: row.user_name,
       userEmail: row.user_email,
@@ -168,4 +170,24 @@ export class BridgeRoom {
       ).bind(refundId, message || "Minecraft command failed", now, purchaseId)
     ]);
   }
+}
+
+function parseCommandSnapshot(snapshot) {
+  try {
+    const parsed = JSON.parse(snapshot || "[]");
+    if (Array.isArray(parsed)) {
+      const commands = parsed
+        .map((step) => ({
+          command: String(step?.command || "").trim(),
+          delayMs: Math.max(0, Math.min(600000, Number(step?.delayMs) || 0))
+        }))
+        .filter((step) => step.command);
+      if (commands.length > 0) return commands;
+    }
+  } catch {
+    // Older rows contain one plain command string.
+  }
+
+  const command = String(snapshot || "").trim();
+  return command ? [{ command, delayMs: 0 }] : [];
 }
