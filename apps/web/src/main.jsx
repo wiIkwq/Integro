@@ -165,8 +165,7 @@ function LoginScreen() {
           <div className="brand-mark">I</div>
           <span>Integro</span>
         </div>
-        <h1>Вход на стрим</h1>
-        <p>Выбери аккаунт и переходи к ваучерам и командам Minecraft.</p>
+        <h1>Войди в аккаунт</h1>
         <div className="login-auth-grid">
           <ShinyButton as="a" className="auth-provider google" href={api.loginUrl()}>
             <Chrome size={20} />
