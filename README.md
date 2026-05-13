@@ -51,3 +51,9 @@ npm run deploy:web
 ```
 
 After the Worker URL is known, set `VITE_API_BASE` for Pages to the Worker origin.
+
+Current Cloudflare targets:
+
+- Web: `https://integro-web.pages.dev`
+- API: `https://integro-api.bogdan3000tm1331.workers.dev`
+- D1: `integro-db`
