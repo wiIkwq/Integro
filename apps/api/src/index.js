@@ -258,8 +258,8 @@ app.get("/actions", async (c) => {
      LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
        AND action_discounts.is_active = 1
        AND action_discounts.deleted_at IS NULL
-       AND action_discounts.starts_at <= datetime('now')
-       AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+       AND datetime(action_discounts.starts_at) <= datetime('now')
+       AND (action_discounts.expires_at IS NULL OR datetime(action_discounts.expires_at) > datetime('now'))
      WHERE minecraft_actions.is_enabled = 1 AND minecraft_actions.deleted_at IS NULL
      ORDER BY minecraft_actions.created_at DESC`
     ).all(),
@@ -281,8 +281,8 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
        LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
          AND action_discounts.is_active = 1
          AND action_discounts.deleted_at IS NULL
-         AND action_discounts.starts_at <= datetime('now')
-         AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+         AND datetime(action_discounts.starts_at) <= datetime('now')
+         AND (action_discounts.expires_at IS NULL OR datetime(action_discounts.expires_at) > datetime('now'))
        WHERE minecraft_actions.id = ? AND minecraft_actions.is_enabled = 1 AND minecraft_actions.deleted_at IS NULL`
     ).bind(actionId).first(),
     bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false }))
@@ -522,8 +522,8 @@ app.get("/admin/actions", requireAdmin, async (c) => {
      LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
        AND action_discounts.is_active = 1
        AND action_discounts.deleted_at IS NULL
-       AND action_discounts.starts_at <= datetime('now')
-       AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+       AND datetime(action_discounts.starts_at) <= datetime('now')
+       AND (action_discounts.expires_at IS NULL OR datetime(action_discounts.expires_at) > datetime('now'))
      WHERE minecraft_actions.deleted_at IS NULL
      ORDER BY minecraft_actions.created_at DESC`
   ).all();

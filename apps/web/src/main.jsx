@@ -113,8 +113,8 @@ function roleTitle(user) {
 
 function discountTimeLabel(discount) {
   if (!discount) return "";
-  if (!discount.expiresAt) return "постоянно";
-  return `до ${dateTime(discount.expiresAt)}`;
+  if (!discount.expiresAt) return "постоянная скидка";
+  return `ограниченное время: до ${dateTime(discount.expiresAt)}`;
 }
 
 function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
@@ -533,7 +533,7 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
   const details = [
     action.sentiment === "bad" ? "плохая" : "хорошая",
-    action.discount ? `скидка ${action.discount.percent}% ${discountTimeLabel(action.discount)}` : ""
+    action.discount ? `скидка ${action.discount.percent}% · ${discountTimeLabel(action.discount)}` : ""
   ].filter(Boolean);
   const hasDiscount = Boolean(action.discount);
 
@@ -988,7 +988,7 @@ function AdminActions({ actions, refresh, setMessage }) {
                   <span>
                     {money(action.price)} coins · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
                     {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
-                    {action.discount ? ` · скидка ${action.discount.percent}% ${discountTimeLabel(action.discount)}` : ""}
+                    {action.discount ? ` · скидка ${action.discount.percent}% · ${discountTimeLabel(action.discount)}` : ""}
                   </span>
                   <code>{(action.commands || [action.command]).join(" | ")}</code>
                 </div>
