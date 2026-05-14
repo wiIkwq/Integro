@@ -237,11 +237,31 @@ app.post("/auth/logout", async (c) => {
 app.get("/actions", async (c) => {
   const [rows, bridge] = await Promise.all([
     c.env.DB.prepare(
-    `SELECT id, title, description, price, cooldown_seconds, is_enabled, sentiment,
-            command_plan, command_mode, repeat_count, repeat_delay_ms, step_delay_ms, random_count, banner_url
+    `SELECT minecraft_actions.id,
+            minecraft_actions.title,
+            minecraft_actions.description,
+            minecraft_actions.price,
+            minecraft_actions.cooldown_seconds,
+            minecraft_actions.is_enabled,
+            minecraft_actions.sentiment,
+            minecraft_actions.command_plan,
+            minecraft_actions.command_mode,
+            minecraft_actions.repeat_count,
+            minecraft_actions.repeat_delay_ms,
+            minecraft_actions.step_delay_ms,
+            minecraft_actions.random_count,
+            minecraft_actions.banner_url,
+            action_discounts.id AS discount_id,
+            action_discounts.percent AS discount_percent,
+            action_discounts.expires_at AS discount_expires_at
      FROM minecraft_actions
-     WHERE is_enabled = 1 AND deleted_at IS NULL
-     ORDER BY created_at DESC`
+     LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
+       AND action_discounts.is_active = 1
+       AND action_discounts.deleted_at IS NULL
+       AND action_discounts.starts_at <= datetime('now')
+       AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+     WHERE minecraft_actions.is_enabled = 1 AND minecraft_actions.deleted_at IS NULL
+     ORDER BY minecraft_actions.created_at DESC`
     ).all(),
     bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false, sockets: 0, queued: 0 }))
   ]);
@@ -253,7 +273,17 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
   const actionId = c.req.param("id");
   const [action, bridge] = await Promise.all([
     c.env.DB.prepare(
-      "SELECT * FROM minecraft_actions WHERE id = ? AND is_enabled = 1 AND deleted_at IS NULL"
+      `SELECT minecraft_actions.*,
+              action_discounts.id AS discount_id,
+              action_discounts.percent AS discount_percent,
+              action_discounts.expires_at AS discount_expires_at
+       FROM minecraft_actions
+       LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
+         AND action_discounts.is_active = 1
+         AND action_discounts.deleted_at IS NULL
+         AND action_discounts.starts_at <= datetime('now')
+         AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+       WHERE minecraft_actions.id = ? AND minecraft_actions.is_enabled = 1 AND minecraft_actions.deleted_at IS NULL`
     ).bind(actionId).first(),
     bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false }))
   ]);
@@ -266,19 +296,20 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
   const now = new Date().toISOString();
   const commandSteps = renderCommandSteps(action, user);
   const commandSnapshot = JSON.stringify(commandSteps);
+  const purchasePrice = discountedPrice(action.price, action.discount_percent);
 
   const batch = await c.env.DB.batch([
     c.env.DB.prepare(
       "UPDATE users SET balance = balance - ?, updated_at = ? WHERE id = ? AND balance >= ?"
-    ).bind(action.price, now, user.id, action.price),
+    ).bind(purchasePrice, now, user.id, purchasePrice),
     c.env.DB.prepare(
       `INSERT INTO action_purchases (id, user_id, action_id, amount, status, command_snapshot, created_at)
        SELECT ?, ?, ?, ?, 'queued', ?, ? WHERE changes() = 1`
-    ).bind(purchaseId, user.id, actionId, action.price, commandSnapshot, now),
+    ).bind(purchaseId, user.id, actionId, purchasePrice, commandSnapshot, now),
     c.env.DB.prepare(
       `INSERT INTO balance_transactions (id, user_id, type, amount, reference_id, note, created_at)
        SELECT ?, ?, 'action_purchase', ?, ?, ?, ? WHERE changes() = 1`
-    ).bind(txId, user.id, -action.price, purchaseId, action.title, now)
+    ).bind(txId, user.id, -purchasePrice, purchaseId, action.title, now)
   ]);
 
   if ((batch[0]?.meta?.changes || 0) !== 1) {
@@ -483,7 +514,18 @@ app.get("/admin/overview", requireAdmin, async (c) => {
 
 app.get("/admin/actions", requireAdmin, async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT * FROM minecraft_actions WHERE deleted_at IS NULL ORDER BY created_at DESC"
+    `SELECT minecraft_actions.*,
+            action_discounts.id AS discount_id,
+            action_discounts.percent AS discount_percent,
+            action_discounts.expires_at AS discount_expires_at
+     FROM minecraft_actions
+     LEFT JOIN action_discounts ON action_discounts.action_id = minecraft_actions.id
+       AND action_discounts.is_active = 1
+       AND action_discounts.deleted_at IS NULL
+       AND action_discounts.starts_at <= datetime('now')
+       AND (action_discounts.expires_at IS NULL OR action_discounts.expires_at > datetime('now'))
+     WHERE minecraft_actions.deleted_at IS NULL
+     ORDER BY minecraft_actions.created_at DESC`
   ).all();
   return c.json(ok({ actions: mapActions(rows.results || [], true) }));
 });
@@ -672,6 +714,55 @@ app.delete("/admin/vouchers/:id", requireAdmin, async (c) => {
   return c.json(ok());
 });
 
+app.get("/admin/discounts", requireAdmin, async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT action_discounts.*,
+            minecraft_actions.title AS action_title,
+            minecraft_actions.price AS action_price
+     FROM action_discounts
+     JOIN minecraft_actions ON minecraft_actions.id = action_discounts.action_id
+     WHERE action_discounts.deleted_at IS NULL
+     ORDER BY action_discounts.created_at DESC
+     LIMIT 200`
+  ).all();
+  return c.json(ok({ discounts: mapDiscounts(rows.results || []) }));
+});
+
+app.post("/admin/discounts", requireAdmin, async (c) => {
+  try {
+    const body = await c.req.json();
+    const actionId = requireString(body.actionId, "actionId", 2, 80);
+    const action = await c.env.DB.prepare(
+      "SELECT id FROM minecraft_actions WHERE id = ? AND deleted_at IS NULL"
+    ).bind(actionId).first();
+    if (!action) return fail("Action not found", "not_found", 404);
+
+    const now = new Date().toISOString();
+    const expiresAt = optionalDate(body.expiresAt);
+    const id = crypto.randomUUID();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE action_discounts SET is_active = 0, updated_at = ? WHERE action_id = ? AND is_active = 1 AND deleted_at IS NULL"
+      ).bind(now, actionId),
+      c.env.DB.prepare(
+        `INSERT INTO action_discounts (id, action_id, percent, starts_at, expires_at, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+      ).bind(id, actionId, requireInt(body.percent, "percent", 1, 95), now, expiresAt, now, now)
+    ]);
+    return c.json(ok({ id }), 201);
+  } catch (err) {
+    return fail(err.message, "validation_error", 400);
+  }
+});
+
+app.delete("/admin/discounts/:id", requireAdmin, async (c) => {
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(
+    "UPDATE action_discounts SET is_active = 0, deleted_at = ?, updated_at = ? WHERE id = ?"
+  ).bind(now, now, c.req.param("id")).run();
+  return c.json(ok());
+});
+
 app.get("/admin/users", requireAdmin, async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT users.id,
@@ -772,9 +863,6 @@ function accountRole(env, email) {
 }
 
 function displayNameForEmail(email, fallback) {
-  const normalized = normalizeEmail(email);
-  if (normalized === "bogdan3000tm@gmail.com") return "Тестер";
-  if (normalized === "ihnatenko.bogdan@gmail.com") return "Разработчик";
   return String(fallback || email || "Пользователь").trim();
 }
 
@@ -844,6 +932,13 @@ function normalizeSentiment(value) {
   return value === "bad" ? "bad" : "good";
 }
 
+function discountedPrice(price, percent) {
+  const base = Math.max(1, Number(price) || 1);
+  const discount = clampNumber(percent || 0, 0, 95);
+  if (discount <= 0) return base;
+  return Math.max(1, Math.round(base * (100 - discount) / 100));
+}
+
 function normalizeUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -882,7 +977,8 @@ function mapActions(rows, includeCommand = false) {
     id: row.id,
     title: row.title,
     description: row.description,
-    price: row.price,
+    originalPrice: row.price,
+    price: discountedPrice(row.price, row.discount_percent),
     sentiment: normalizeSentiment(row.sentiment),
     cooldownSeconds: row.cooldown_seconds,
     commandMode: row.command_mode || "sequence",
@@ -890,6 +986,11 @@ function mapActions(rows, includeCommand = false) {
     randomCount: row.random_count || 1,
     bannerUrl: row.banner_url,
     commandCount: parseCommandPlan(row.command_plan, row.command).length,
+    discount: row.discount_id ? {
+      id: row.discount_id,
+      percent: row.discount_percent,
+      expiresAt: row.discount_expires_at
+    } : null,
     isEnabled: Boolean(row.is_enabled),
     ...(includeCommand ? {
       command: row.command,
@@ -913,6 +1014,28 @@ function mapVouchers(rows) {
     canDelete: true,
     createdAt: row.created_at
   }));
+}
+
+function mapDiscounts(rows) {
+  const now = Date.now();
+  return rows.map((row) => {
+    const expiresAt = row.expires_at || null;
+    const isActive = Boolean(row.is_active)
+      && !row.deleted_at
+      && (!expiresAt || new Date(expiresAt).getTime() > now);
+    return {
+      id: row.id,
+      actionId: row.action_id,
+      actionTitle: row.action_title,
+      percent: row.percent,
+      originalPrice: row.action_price,
+      discountedPrice: discountedPrice(row.action_price, row.percent),
+      startsAt: row.starts_at,
+      expiresAt,
+      isActive,
+      createdAt: row.created_at
+    };
+  });
 }
 
 function mapTransactions(rows) {

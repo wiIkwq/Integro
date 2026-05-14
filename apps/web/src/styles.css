@@ -42,7 +42,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -557,7 +558,8 @@ a {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   min-height: 42px;
   padding: 10px 12px;
@@ -579,7 +581,8 @@ textarea::placeholder {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--accent);
   box-shadow: var(--shadow-small);
   transform: translate(-1px, -1px);
@@ -666,6 +669,10 @@ textarea:focus {
   font-weight: 900;
 }
 
+.remove-banner-button {
+  width: max-content;
+}
+
 .banner-preview {
   width: 98px;
   height: 56px;
@@ -716,7 +723,7 @@ code {
 
 .command-field-actions .icon-button {
   width: 100%;
-  min-height: 30px;
+  min-height: 28px;
 }
 
 .rotate-up {
@@ -765,6 +772,14 @@ code {
   border-color: var(--line-strong);
   background: var(--panel-2);
   transform: translate(-1px, -1px);
+}
+
+.mode-row button.active:not(:disabled):hover,
+.segmented button.active:not(:disabled):hover {
+  border-color: var(--line);
+  background: var(--line);
+  color: #070807;
+  transform: translate(-1px, -1px) scale(1.015);
 }
 
 .primary-action:disabled,
@@ -896,6 +911,18 @@ code {
   font-weight: 950;
   text-align: right;
   white-space: normal;
+}
+
+.action-top .price-pill.discounted {
+  display: grid;
+  gap: 2px;
+  max-width: 132px;
+}
+
+.price-pill del {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .action-body p {
@@ -1319,13 +1346,17 @@ code {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 120;
   display: grid;
   place-items: start center;
   padding: 96px 16px 24px;
   background: rgba(7, 8, 7, 0.62);
   backdrop-filter: blur(10px);
   animation: toast-in 0.18s ease both;
+}
+
+.modal-lock {
+  pointer-events: auto;
 }
 
 .user-modal {
@@ -1335,6 +1366,62 @@ code {
   border: 2px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.crop-modal,
+.command-modal {
+  width: min(760px, 100%);
+}
+
+.modal-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.modal-title-row h3 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.modal-title-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.modal-close-inline {
+  flex: 0 0 auto;
+}
+
+.crop-preview {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 2px solid var(--line);
+  background-color: var(--bg);
+  background-repeat: no-repeat;
+  box-shadow: var(--shadow-small);
+}
+
+.crop-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.expanded-command-input {
+  min-height: 320px;
+  resize: vertical;
 }
 
 .modal-close {
@@ -1708,7 +1795,7 @@ code {
   }
 
   .command-field-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .modal-profile-head {

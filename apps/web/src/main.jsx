@@ -12,6 +12,8 @@ import {
   Image,
   Loader2,
   LogOut,
+  Maximize2,
+  Percent,
   Plus,
   Power,
   RefreshCcw,
@@ -92,6 +94,29 @@ function generateVoucherCode() {
   return `LIVE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
+function commandCountLabel(value) {
+  const number = Math.abs(Number(value) || 0);
+  const lastTwo = number % 100;
+  const last = number % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${number} команд`;
+  if (last === 1) return `${number} команда`;
+  if (last >= 2 && last <= 4) return `${number} команды`;
+  return `${number} команд`;
+}
+
+function roleTitle(user) {
+  const email = String(user?.email || "").toLowerCase();
+  if (email === "bogdan3000tm@gmail.com") return "Тестер";
+  if (email === "ihnatenko.bogdan@gmail.com") return "Разработчик";
+  return user?.role === "admin" ? "Стример" : "Зритель";
+}
+
+function discountTimeLabel(discount) {
+  if (!discount) return "";
+  if (!discount.expiresAt) return "постоянно";
+  return `до ${dateTime(discount.expiresAt)}`;
+}
+
 function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
   if (!file) return Promise.resolve("");
   if (!file.type.startsWith("image/")) return Promise.reject(new Error("Загрузи изображение"));
@@ -102,6 +127,35 @@ function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
     reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
     reader.readAsDataURL(file);
   });
+}
+
+function loadImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Не удалось открыть изображение"));
+    image.src = source;
+  });
+}
+
+async function cropBannerImage(crop) {
+  const image = await loadImage(crop.source);
+  const width = 1280;
+  const height = 720;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas недоступен");
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight) * Number(crop.zoom || 1);
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  const x = (width - drawWidth) / 2 + (Number(crop.offsetX || 0) / 100) * (width / 2);
+  const y = (height - drawHeight) / 2 + (Number(crop.offsetY || 0) / 100) * (height / 2);
+  context.fillStyle = "#070807";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, x, y, drawWidth, drawHeight);
+  return canvas.toDataURL("image/webp", 0.9);
 }
 
 function StatusPill({ status }) {
@@ -307,7 +361,7 @@ function ProfileStats({ user, stats, error, onLogout }) {
         {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={26} />}
         <div>
           <strong>{user.name || "Профиль"}</strong>
-          <span>{user.role === "admin" ? "Стример" : "Зритель"}</span>
+          <span>{roleTitle(user)}</span>
         </div>
       </div>
       {error && <Notice notice={{ tone: "error", text: error }} />}
@@ -479,10 +533,9 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
   const details = [
     action.sentiment === "bad" ? "плохая" : "хорошая",
-    action.commandCount > 1 ? `${action.commandCount} команд` : "1 команда",
-    action.commandMode === "random" ? `рандом ${Math.min(action.randomCount || 1, action.commandCount || 1)}` : "по очереди",
-    action.stepDelayMs > 0 ? `${msLabel(action.stepDelayMs)} задержка` : ""
+    action.discount ? `скидка ${action.discount.percent}% ${discountTimeLabel(action.discount)}` : ""
   ].filter(Boolean);
+  const hasDiscount = Boolean(action.discount);
 
   return (
     <SpotlightCard className="action-card" delay={index * 35}>
@@ -492,7 +545,10 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
       <div className="action-body">
         <div className="action-top">
           <h3>{action.title}</h3>
-          <span>{money(action.price)} coins</span>
+          <span className={hasDiscount ? "price-pill discounted" : ""}>
+            {hasDiscount && <del>{money(action.originalPrice)} coins</del>}
+            {money(action.price)} coins
+          </span>
         </div>
         {action.description && <p>{action.description}</p>}
         <div className="action-meta">
@@ -522,6 +578,7 @@ function AdminDashboard({ onUserChange }) {
   const [tab, setTab] = useState("actions");
   const [actions, setActions] = useState([]);
   const [vouchers, setVouchers] = useState([]);
+  const [discounts, setDiscounts] = useState([]);
   const [users, setUsers] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -537,11 +594,12 @@ function AdminDashboard({ onUserChange }) {
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
     try {
-      const [me, nextOverview, nextActions, nextVouchers, nextUsers, nextPurchases] = await Promise.all([
+      const [me, nextOverview, nextActions, nextVouchers, nextDiscounts, nextUsers, nextPurchases] = await Promise.all([
         api.me(),
         api.adminOverview(),
         api.adminActions(),
         api.adminVouchers(),
+        api.adminDiscounts(),
         api.adminUsers(),
         api.adminPurchases()
       ]);
@@ -549,6 +607,7 @@ function AdminDashboard({ onUserChange }) {
       setOverview(nextOverview);
       setActions(nextActions.actions);
       setVouchers(nextVouchers.vouchers);
+      setDiscounts(nextDiscounts.discounts);
       setUsers(nextUsers.users);
       setPurchases(nextPurchases.purchases);
     } catch (err) {
@@ -582,6 +641,7 @@ function AdminDashboard({ onUserChange }) {
   const tabs = [
     { id: "actions", label: "Команды", icon: Terminal, count: actions.length },
     { id: "vouchers", label: "Ваучеры", icon: Ticket, count: vouchers.length },
+    { id: "discounts", label: "Скидки", icon: Percent, count: discounts.length },
     { id: "users", label: "Пользователи", icon: Users, count: users.length },
     { id: "donations", label: "Донаты", icon: Zap, count: purchases.length }
   ];
@@ -632,6 +692,7 @@ function AdminDashboard({ onUserChange }) {
 
       {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} />}
       {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
+      {tab === "discounts" && <AdminDiscounts actions={actions} discounts={discounts} refresh={refresh} setMessage={setMessage} />}
       {tab === "users" && <AdminUsers users={users} />}
       {tab === "donations" && <AdminDonations purchases={purchases} />}
     </main>
@@ -652,6 +713,8 @@ function AdminActions({ actions, refresh, setMessage }) {
   const [form, setForm] = useState(emptyActionForm);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
+  const [pendingBanner, setPendingBanner] = useState(null);
+  const [expandedCommandIndex, setExpandedCommandIndex] = useState(null);
   const commandLines = useMemo(() => form.commands.map((command) => command.trim()).filter(Boolean).length, [form.commands]);
   const randomLimit = Math.max(1, commandLines || 1);
 
@@ -687,12 +750,23 @@ function AdminActions({ actions, refresh, setMessage }) {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const bannerUrl = await fileToDataUrl(file);
-      setForm((current) => ({ ...current, bannerUrl }));
+      const source = await fileToDataUrl(file);
+      setPendingBanner({ source, zoom: 1, offsetX: 0, offsetY: 0 });
     } catch (err) {
       setMessage(err.message);
     } finally {
       event.target.value = "";
+    }
+  }
+
+  async function applyBannerCrop() {
+    if (!pendingBanner) return;
+    try {
+      const bannerUrl = await cropBannerImage(pendingBanner);
+      setForm((current) => ({ ...current, bannerUrl }));
+      setPendingBanner(null);
+    } catch (err) {
+      setMessage(err.message);
     }
   }
 
@@ -750,6 +824,7 @@ function AdminActions({ actions, refresh, setMessage }) {
   }
 
   return (
+    <>
     <section className="grid admin-grid">
       <form className="panel form-panel" onSubmit={submit}>
         <div className="panel-title">
@@ -776,9 +851,9 @@ function AdminActions({ actions, refresh, setMessage }) {
                 Загрузить фото
                 <input type="file" accept="image/*" onChange={handleBanner} />
               </label>
-              <small>Лучше 1280x720, JPG/WebP/PNG до 7 MB.</small>
               {form.bannerUrl && (
-                <button className="link-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })}>
+                <button className="secondary-action compact remove-banner-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })}>
+                  <Trash2 size={15} />
                   Убрать баннер
                 </button>
               )}
@@ -811,6 +886,9 @@ function AdminActions({ actions, refresh, setMessage }) {
                   </button>
                   <button className="icon-button compact danger" type="button" onClick={() => removeCommand(index)} title="Удалить поле">
                     <Trash2 size={16} />
+                  </button>
+                  <button className="icon-button compact" type="button" onClick={() => setExpandedCommandIndex(index)} title="Увеличить">
+                    <Maximize2 size={16} />
                   </button>
                 </div>
               </div>
@@ -876,7 +954,7 @@ function AdminActions({ actions, refresh, setMessage }) {
           )}
         </div>
         <div className="form-foot">
-          <span>{commandLines || 0} команд</span>
+          <span>{commandCountLabel(commandLines || 0)}</span>
           <ShinyButton className="primary-action compact" disabled={saving}>
             <BadgeCheck size={17} />
             {saving ? "Создаем" : "Создать"}
@@ -908,8 +986,9 @@ function AdminActions({ actions, refresh, setMessage }) {
                     </span>
                   </div>
                   <span>
-                    {money(action.price)} coins · {action.commandCount} команд · {action.commandMode === "random" ? "рандом" : "по очереди"}
+                    {money(action.price)} coins · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
                     {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
+                    {action.discount ? ` · скидка ${action.discount.percent}% ${discountTimeLabel(action.discount)}` : ""}
                   </span>
                   <code>{(action.commands || [action.command]).join(" | ")}</code>
                 </div>
@@ -928,6 +1007,108 @@ function AdminActions({ actions, refresh, setMessage }) {
         </div>
       </section>
     </section>
+      {pendingBanner && (
+        <BannerCropModal
+          crop={pendingBanner}
+          setCrop={setPendingBanner}
+          onCancel={() => setPendingBanner(null)}
+          onApply={applyBannerCrop}
+        />
+      )}
+      {expandedCommandIndex !== null && (
+        <CommandEditorModal
+          value={form.commands[expandedCommandIndex] || ""}
+          index={expandedCommandIndex}
+          onChange={(value) => setCommand(expandedCommandIndex, value)}
+          onClose={() => setExpandedCommandIndex(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
+  const previewStyle = {
+    backgroundImage: `url(${crop.source})`,
+    backgroundSize: `${100 * Number(crop.zoom || 1)}% auto`,
+    backgroundPosition: `${50 + Number(crop.offsetX || 0)}% ${50 + Number(crop.offsetY || 0)}%`
+  };
+
+  return (
+    <ModalFrame onClose={onCancel} className="crop-modal" label="Кадрирование баннера">
+      <div className="modal-title-row">
+        <div>
+          <h3>Кадрирование баннера</h3>
+          <span>Формат как на карточке команды у зрителей</span>
+        </div>
+        <button className="icon-button modal-close-inline" type="button" onClick={onCancel} title="Закрыть">
+          <X size={18} />
+        </button>
+      </div>
+      <div className="crop-preview" style={previewStyle} />
+      <div className="crop-controls">
+        <label className="field">
+          <span>Масштаб</span>
+          <input type="range" min="1" max="3" step="0.01" value={crop.zoom} onChange={(e) => setCrop({ ...crop, zoom: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>По горизонтали</span>
+          <input type="range" min="-50" max="50" step="1" value={crop.offsetX} onChange={(e) => setCrop({ ...crop, offsetX: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>По вертикали</span>
+          <input type="range" min="-50" max="50" step="1" value={crop.offsetY} onChange={(e) => setCrop({ ...crop, offsetY: e.target.value })} />
+        </label>
+      </div>
+      <div className="modal-actions">
+        <button className="secondary-action compact" type="button" onClick={onCancel}>Отмена</button>
+        <ShinyButton className="primary-action compact" type="button" onClick={onApply}>
+          <BadgeCheck size={16} />
+          Применить
+        </ShinyButton>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function CommandEditorModal({ value, index, onChange, onClose }) {
+  return (
+    <ModalFrame onClose={onClose} className="command-modal" label="Большое поле команды">
+      <div className="modal-title-row">
+        <div>
+          <h3>Команда {index + 1}</h3>
+          <span>Удобное поле для длинной Minecraft-команды</span>
+        </div>
+        <button className="icon-button modal-close-inline" type="button" onClick={onClose} title="Закрыть">
+          <X size={18} />
+        </button>
+      </div>
+      <textarea
+        className="mono expanded-command-input"
+        spellCheck="false"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoFocus
+      />
+      <div className="modal-actions">
+        <ShinyButton className="primary-action compact" type="button" onClick={onClose}>
+          <BadgeCheck size={16} />
+          Готово
+        </ShinyButton>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function ModalFrame({ children, onClose, className = "", label }) {
+  return (
+    <div className="modal-backdrop modal-lock" onClick={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <SpotlightCard className={`user-modal ${className}`} role="dialog" aria-modal="true" aria-label={label}>
+        {children}
+      </SpotlightCard>
+    </div>
   );
 }
 
@@ -1091,6 +1272,111 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
   );
 }
 
+function AdminDiscounts({ actions, discounts, refresh, setMessage }) {
+  const [form, setForm] = useState({ actionId: "", percent: 20, expiresAt: "" });
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    try {
+      await api.createDiscount({
+        actionId: form.actionId,
+        percent: Number(form.percent),
+        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null
+      });
+      setForm({ actionId: "", percent: 20, expiresAt: "" });
+      setMessage("Скидка создана");
+      await refresh({ silent: true });
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(discount) {
+    setBusyId(discount.id);
+    setMessage("");
+    try {
+      await api.deleteDiscount(discount.id);
+      setMessage("Скидка удалена");
+      await refresh({ silent: true });
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <section className="grid admin-grid">
+      <form className="panel form-panel" onSubmit={submit}>
+        <div className="panel-title">
+          <Percent size={19} />
+          <h2>Новая скидка</h2>
+        </div>
+        <label className="field">
+          <span>Команда</span>
+          <select required value={form.actionId} onChange={(e) => setForm({ ...form, actionId: e.target.value })}>
+            <option value="">Выбери команду</option>
+            {actions.map((action) => (
+              <option key={action.id} value={action.id}>
+                {action.title} · {money(action.originalPrice || action.price)} coins
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Скидка, %</span>
+          <input required type="number" min="1" max="95" value={form.percent} onChange={(e) => setForm({ ...form, percent: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>До даты</span>
+          <input type="datetime-local" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
+        </label>
+        <ShinyButton className="primary-action compact" disabled={saving || actions.length === 0}>
+          <Plus size={17} />
+          {saving ? "Создаем" : "Создать"}
+        </ShinyButton>
+      </form>
+
+      <section className="panel">
+        <div className="panel-title">
+          <Percent size={19} />
+          <h2>Скидки</h2>
+        </div>
+        <div className="table-list">
+          {discounts.length === 0 && <EmptyState icon={Percent} title="Скидок нет" text="Создай скидку на команду навсегда или до времени." />}
+          {discounts.map((discount) => (
+            <div className="admin-row" key={discount.id}>
+              <div>
+                <div className="row-title">
+                  <strong>{discount.actionTitle || "Команда"}</strong>
+                  <span className="state-badge good">-{discount.percent}%</span>
+                  <span className={`state-badge ${discount.isActive ? "on" : "off"}`}>
+                    {discount.isActive ? "активна" : "выключена"}
+                  </span>
+                </div>
+                <span>
+                  {money(discount.originalPrice)} coins &rarr; {money(discount.discountedPrice)} coins · {discountTimeLabel(discount)}
+                </span>
+              </div>
+              <div className="row-actions">
+                <button className="icon-button danger" type="button" onClick={() => remove(discount)} disabled={busyId === discount.id} title="Удалить скидку">
+                  <Trash2 size={17} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+}
+
 function AdminUsers({ users }) {
   const [query, setQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -1124,7 +1410,7 @@ function AdminUsers({ users }) {
                 {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
                 <div>
                   <strong>{user.name || "Зритель"}</strong>
-                  <span>{user.role === "admin" ? "Стример" : "Зритель"}</span>
+                  <span>{roleTitle(user)}</span>
                 </div>
               </div>
               <span>{user.purchasesCount || 0} донатов</span>
@@ -1138,8 +1424,7 @@ function AdminUsers({ users }) {
 
 function UserDetailsModal({ user, onClose }) {
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <SpotlightCard className="user-modal" role="dialog" aria-modal="true" aria-label="Профиль пользователя" onMouseDown={(event) => event.stopPropagation()}>
+    <ModalFrame onClose={onClose} label="Профиль пользователя">
         <button className="icon-button modal-close" type="button" onClick={onClose} title="Закрыть">
           <X size={18} />
         </button>
@@ -1148,7 +1433,7 @@ function UserDetailsModal({ user, onClose }) {
             {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={38} />}
           </div>
           <div>
-            <span>{user.role === "admin" ? "Канал стримера" : "Канал зрителя"}</span>
+            <span>{roleTitle(user)}</span>
             <h3>{user.name || "Зритель"}</h3>
             <p>Зарегистрирован: {dateTime(user.createdAt) || "нет даты"}</p>
           </div>
@@ -1159,8 +1444,7 @@ function UserDetailsModal({ user, onClose }) {
           <StatMini label="Потратил" value={money(user.totalSpent)} />
           <StatMini label="Донатов" value={user.purchasesCount || 0} />
         </div>
-      </SpotlightCard>
-    </div>
+    </ModalFrame>
   );
 }
 
