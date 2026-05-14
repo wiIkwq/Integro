@@ -71,5 +71,6 @@ export const api = {
   deleteVoucher: (id) => request(`/admin/vouchers/${id}`, { method: "DELETE" }),
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
+  adminResetData: () => request("/admin/reset", { method: "POST" }),
   flushBridge: () => request("/bridge/flush", { method: "POST" })
 };

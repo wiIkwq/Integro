@@ -105,7 +105,9 @@ app.get("/auth/google/callback", async (c) => {
   const profile = await profileResponse.json();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  const role = isAdminEmail(c.env, profile.email) ? "admin" : "user";
+  const email = normalizeEmail(profile.email);
+  const role = accountRole(c.env, email);
+  const name = displayNameForEmail(email, profile.name || email);
 
   await c.env.DB.prepare(
     `INSERT INTO users (id, google_sub, email, name, avatar_url, role, created_at, updated_at)
@@ -116,7 +118,7 @@ app.get("/auth/google/callback", async (c) => {
        avatar_url = excluded.avatar_url,
        role = excluded.role,
        updated_at = excluded.updated_at`
-  ).bind(id, profile.sub, profile.email, profile.name || profile.email, profile.picture || null, role, now, now).run();
+  ).bind(id, profile.sub, email, name, profile.picture || null, role, now, now).run();
 
   const user = await c.env.DB.prepare("SELECT id FROM users WHERE google_sub = ?").bind(profile.sub).first();
   await createSession(c, user.id);
@@ -199,7 +201,8 @@ app.get("/auth/twitch/callback", async (c) => {
     ? await c.env.DB.prepare("SELECT id FROM users WHERE email = ? AND google_sub != ?").bind(realEmail, providerSub).first()
     : null;
   const email = realEmail && !conflictingEmail ? realEmail : fallbackEmail;
-  const role = realEmail && isAdminEmail(c.env, realEmail) ? "admin" : "user";
+  const role = realEmail ? accountRole(c.env, realEmail) : "user";
+  const name = displayNameForEmail(realEmail, profile.display_name || profile.login || "Twitch user");
 
   await c.env.DB.prepare(
     `INSERT INTO users (id, google_sub, email, name, avatar_url, role, created_at, updated_at)
@@ -214,7 +217,7 @@ app.get("/auth/twitch/callback", async (c) => {
     id,
     providerSub,
     email,
-    profile.display_name || profile.login || "Twitch user",
+    name,
     profile.profile_image_url || null,
     role,
     now,
@@ -234,7 +237,7 @@ app.post("/auth/logout", async (c) => {
 app.get("/actions", async (c) => {
   const [rows, bridge] = await Promise.all([
     c.env.DB.prepare(
-    `SELECT id, title, description, price, cooldown_seconds, is_enabled,
+    `SELECT id, title, description, price, cooldown_seconds, is_enabled, sentiment,
             command_plan, command_mode, repeat_count, repeat_delay_ms, step_delay_ms, random_count, banner_url
      FROM minecraft_actions
      WHERE is_enabled = 1 AND deleted_at IS NULL
@@ -498,6 +501,7 @@ app.post("/admin/actions", requireAdmin, async (c) => {
       command: commands[0],
       commands,
       commandMode: normalizeCommandMode(body.commandMode),
+      sentiment: normalizeSentiment(body.sentiment),
       randomCount: requireInt(body.randomCount || 1, "randomCount", 1, 20),
       repeatCount: 1,
       repeatDelayMs: 0,
@@ -508,8 +512,8 @@ app.post("/admin/actions", requireAdmin, async (c) => {
     await c.env.DB.prepare(
       `INSERT INTO minecraft_actions
        (id, title, description, price, command, command_plan, command_mode, repeat_count,
-        repeat_delay_ms, step_delay_ms, random_count, banner_url, cooldown_seconds, is_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        repeat_delay_ms, step_delay_ms, random_count, banner_url, sentiment, cooldown_seconds, is_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).bind(
       row.id,
       row.title,
@@ -523,6 +527,7 @@ app.post("/admin/actions", requireAdmin, async (c) => {
       row.stepDelayMs,
       row.randomCount,
       row.bannerUrl,
+      row.sentiment,
       row.cooldownSeconds,
       now,
       now
@@ -547,6 +552,7 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
         ? parseCommandPlan(existing.command_plan, existing.command)
         : normalizeCommandPlan(body.commands, body.command),
       commandMode: body.commandMode === undefined ? existing.command_mode : normalizeCommandMode(body.commandMode),
+      sentiment: body.sentiment === undefined ? existing.sentiment || "good" : normalizeSentiment(body.sentiment),
       randomCount: body.randomCount === undefined ? existing.random_count || 1 : requireInt(body.randomCount, "randomCount", 1, 20),
       repeatCount: 1,
       repeatDelayMs: 0,
@@ -561,7 +567,7 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
       `UPDATE minecraft_actions
        SET title = ?, description = ?, price = ?, command = ?, command_plan = ?, command_mode = ?,
            repeat_count = ?, repeat_delay_ms = ?, step_delay_ms = ?, random_count = ?, banner_url = ?,
-           cooldown_seconds = ?, is_enabled = ?, updated_at = ?
+           sentiment = ?, cooldown_seconds = ?, is_enabled = ?, updated_at = ?
        WHERE id = ?`
     ).bind(
       next.title,
@@ -575,6 +581,7 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
       next.stepDelayMs,
       next.randomCount,
       next.bannerUrl,
+      next.sentiment,
       next.cooldownSeconds,
       next.isEnabled,
       new Date().toISOString(),
@@ -725,6 +732,20 @@ app.get("/admin/purchases", requireAdmin, async (c) => {
   return c.json(ok({ purchases: mapPurchases(rows.results || []) }));
 });
 
+app.post("/admin/reset", requireAdmin, async (c) => {
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role != 'admin')"),
+    c.env.DB.prepare("DELETE FROM balance_transactions"),
+    c.env.DB.prepare("DELETE FROM voucher_redemptions"),
+    c.env.DB.prepare("DELETE FROM action_purchases"),
+    c.env.DB.prepare("UPDATE vouchers SET redeemed_count = 0, updated_at = ? WHERE deleted_at IS NULL").bind(now),
+    c.env.DB.prepare("DELETE FROM users WHERE role != 'admin'"),
+    c.env.DB.prepare("UPDATE users SET balance = 0, updated_at = ? WHERE role = 'admin'").bind(now)
+  ]);
+  return c.json(ok());
+});
+
 app.get("/bridge/connect", async (c) => {
   return bridgeFetch(c.env, "/connect", { headers: { Authorization: c.req.header("authorization") || "" } });
 });
@@ -738,6 +759,23 @@ function apiOrigin(c) {
   const requestOrigin = new URL(c.req.url).origin;
   if (requestOrigin.endsWith(".workers.dev")) return requestOrigin;
   return c.env.API_ORIGIN || requestOrigin;
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function accountRole(env, email) {
+  const normalized = normalizeEmail(email);
+  if (normalized === "bogdan3000tm@gmail.com") return "user";
+  return isAdminEmail(env, normalized) ? "admin" : "user";
+}
+
+function displayNameForEmail(email, fallback) {
+  const normalized = normalizeEmail(email);
+  if (normalized === "bogdan3000tm@gmail.com") return "Тестер";
+  if (normalized === "ihnatenko.bogdan@gmail.com") return "Разработчик";
+  return String(fallback || email || "Пользователь").trim();
 }
 
 function renderCommand(template, user) {
@@ -802,10 +840,14 @@ function normalizeCommandMode(value) {
   return value === "random" ? "random" : "sequence";
 }
 
+function normalizeSentiment(value) {
+  return value === "bad" ? "bad" : "good";
+}
+
 function normalizeUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
-  if (raw.length > 950000) throw new Error("bannerUrl is too long");
+  if (raw.length > 10000000) throw new Error("bannerUrl is too long");
   if (raw.startsWith("data:image/")) return raw;
   try {
     const url = new URL(raw);
@@ -841,6 +883,7 @@ function mapActions(rows, includeCommand = false) {
     title: row.title,
     description: row.description,
     price: row.price,
+    sentiment: normalizeSentiment(row.sentiment),
     cooldownSeconds: row.cooldown_seconds,
     commandMode: row.command_mode || "sequence",
     stepDelayMs: row.step_delay_ms || 0,

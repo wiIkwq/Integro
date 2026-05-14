@@ -161,7 +161,8 @@ a {
 .secondary-action,
 .icon-button,
 .tabs button,
-.mode-row button {
+.mode-row button,
+.segmented button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -257,6 +258,14 @@ a {
 
 .profile-stats-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-logout.secondary-action:not(:disabled):hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #070807;
+  box-shadow: 6px 6px 0 rgba(255, 99, 138, 0.45);
+  transform: translate(-2px, -2px);
 }
 
 .profile-logout {
@@ -527,6 +536,21 @@ a {
   margin-bottom: 16px;
 }
 
+.panel-title-split {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title-split > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-search {
+  width: min(320px, 100%);
+}
+
 .panel-title h2 {
   margin: 0;
   font-size: 18px;
@@ -668,6 +692,41 @@ code {
   min-height: 150px;
 }
 
+.command-fields {
+  display: grid;
+  gap: 9px;
+}
+
+.command-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.command-field-input {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.command-field-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.command-field-actions .icon-button {
+  width: 100%;
+  min-height: 30px;
+}
+
+.rotate-up {
+  transform: rotate(180deg);
+}
+
+.add-command-button {
+  width: max-content;
+}
+
 .primary-action {
   padding: 0 16px;
   border: 2px solid var(--line);
@@ -686,7 +745,8 @@ code {
 .secondary-action,
 .icon-button,
 .tabs button,
-.mode-row button {
+.mode-row button,
+.segmented button {
   border: 2px solid var(--line);
   background: var(--panel);
   color: var(--ink);
@@ -700,7 +760,8 @@ code {
 .secondary-action:not(:disabled):hover,
 .icon-button:not(:disabled):hover,
 .tabs button:not(:disabled):hover,
-.mode-row button:not(:disabled):hover {
+.mode-row button:not(:disabled):hover,
+.segmented button:not(:disabled):hover {
   border-color: var(--line-strong);
   background: var(--panel-2);
   transform: translate(-1px, -1px);
@@ -709,8 +770,24 @@ code {
 .primary-action:disabled,
 .secondary-action:disabled,
 .icon-button:disabled,
-.mode-row button:disabled {
+.mode-row button:disabled,
+.segmented button:disabled {
   opacity: 0.5;
+}
+
+.profile-logout.secondary-action:not(:disabled):hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #070807;
+  box-shadow: 6px 6px 0 rgba(255, 99, 138, 0.45);
+  transform: translate(-2px, -2px);
+}
+
+.danger-action:not(:disabled):hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #070807;
+  box-shadow: 5px 5px 0 rgba(255, 99, 138, 0.45);
 }
 
 .compact {
@@ -986,6 +1063,42 @@ code {
   min-height: 38px;
 }
 
+.mode-row button.active.good-choice {
+  box-shadow: 4px 4px 0 var(--accent);
+}
+
+.mode-row button.active.bad-choice {
+  box-shadow: 4px 4px 0 var(--danger);
+}
+
+.sort-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segmented button {
+  min-height: 36px;
+  padding: 0 11px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.segmented button.active {
+  border-color: var(--line);
+  background: var(--line);
+  color: #070807;
+  box-shadow: 4px 4px 0 var(--accent);
+}
+
 .form-foot {
   justify-content: space-between;
 }
@@ -1012,6 +1125,18 @@ code {
   color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.user-row-button {
+  align-items: center;
+  flex-direction: row;
+}
+
+.user-row-button > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .user-row-button:hover,
@@ -1104,6 +1229,16 @@ code {
   color: var(--amber);
 }
 
+.state-badge.good {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.state-badge.bad {
+  background: var(--danger-soft);
+  color: #ffb7c9;
+}
+
 .pill {
   min-height: 28px;
   padding: 0 9px;
@@ -1179,6 +1314,87 @@ code {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   width: 100%;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: start center;
+  padding: 96px 16px 24px;
+  background: rgba(7, 8, 7, 0.62);
+  backdrop-filter: blur(10px);
+  animation: toast-in 0.18s ease both;
+}
+
+.user-modal {
+  position: relative;
+  width: min(560px, 100%);
+  padding: 18px;
+  border: 2px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.modal-profile-head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding-right: 48px;
+}
+
+.modal-avatar {
+  display: grid;
+  width: 78px;
+  height: 78px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  box-shadow: var(--shadow-small);
+}
+
+.modal-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.modal-profile-head span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.modal-profile-head h3 {
+  margin: 2px 0 4px;
+  overflow-wrap: anywhere;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.modal-profile-head p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.modal-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-stats.streamer-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .empty {
@@ -1406,9 +1622,14 @@ code {
   .input-with-button,
   .admin-row,
   .action-top,
-  .row-actions {
+  .row-actions,
+  .panel-title-split {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .user-search {
+    width: 100%;
   }
 
   .viewer-bar-compact {
@@ -1429,7 +1650,9 @@ code {
   .metrics,
   .metrics-wide,
   .stats-strip,
-  .user-stats {
+  .user-stats,
+  .modal-stats,
+  .modal-stats.streamer-stats {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1473,12 +1696,29 @@ code {
 
   .split-inputs,
   .mode-row,
+  .command-field-row,
   .metrics,
   .metrics-wide,
   .profile-stats-grid,
   .stats-strip,
-  .user-stats {
+  .user-stats,
+  .modal-stats,
+  .modal-stats.streamer-stats {
     grid-template-columns: 1fr;
+  }
+
+  .command-field-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .modal-profile-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .modal-avatar {
+    width: 64px;
+    height: 64px;
   }
 
   .tabs button {

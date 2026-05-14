@@ -6,6 +6,7 @@ import {
   Chrome,
   Coins,
   Copy,
+  Eraser,
   Gamepad2,
   Gift,
   Image,
@@ -14,10 +15,13 @@ import {
   Plus,
   Power,
   RefreshCcw,
+  Search,
   Shield,
   Shuffle,
   Sparkles,
   Terminal,
+  ThumbsDown,
+  ThumbsUp,
   Ticket,
   Trash2,
   Twitch,
@@ -26,22 +30,26 @@ import {
   Users,
   Wifi,
   WifiOff,
+  X,
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard, StatusDot } from "./components/Bits";
+import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
 
-const EMPTY_ACTION_FORM = {
-  title: "",
-  description: "",
-  price: 100,
-  commandsText: "say {user} активировал интерактив",
-  commandMode: "sequence",
-  stepDelaySeconds: 0,
-  randomCount: 1,
-  bannerUrl: ""
-};
+function emptyActionForm() {
+  return {
+    title: "",
+    description: "",
+    price: 100,
+    commands: ["say {user} активировал интерактив"],
+    commandMode: "sequence",
+    sentiment: "good",
+    stepDelaySeconds: 0,
+    randomCount: 1,
+    bannerUrl: ""
+  };
+}
 
 const STATUS_META = {
   queued: { label: "Отправлено", tone: "queued" },
@@ -59,6 +67,7 @@ function dateTime(value) {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "2-digit",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
@@ -83,17 +92,10 @@ function generateVoucherCode() {
   return `LIVE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-function commandsFromText(value) {
-  return String(value || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function fileToDataUrl(file, maxBytes = 700 * 1024) {
+function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
   if (!file) return Promise.resolve("");
   if (!file.type.startsWith("image/")) return Promise.reject(new Error("Загрузи изображение"));
-  if (file.size > maxBytes) return Promise.reject(new Error("Фото лучше сжать до 700 KB"));
+  if (file.size > maxBytes) return Promise.reject(new Error("Фото должно быть до 7 MB"));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
@@ -309,15 +311,15 @@ function ProfileStats({ user, stats, error, onLogout }) {
         </div>
       </div>
       {error && <Notice notice={{ tone: "error", text: error }} />}
-      {!stats && !error && (
+      {!stats && !error && user.role !== "admin" && (
         <div className="mini-loading">
           <Loader2 className="spin" size={16} />
           Загружаем статистику
         </div>
       )}
-      {stats && (
+      {stats && user.role !== "admin" && (
         <div className="profile-stats-grid">
-          {user.role !== "admin" && <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />}
+          <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />
           <StatMini label="Пополнено" value={money(stats.totalReceived)} />
           <StatMini label="Потрачено" value={money(stats.totalSpent)} />
           <StatMini label="Команд отправил" value={stats.completedCount || 0} />
@@ -347,8 +349,17 @@ function UserDashboard({ user, onUserChange }) {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [kindFilter, setKindFilter] = useState("all");
+  const [priceSort, setPriceSort] = useState("none");
 
   useAutoDismissNotice(notice, setNotice);
+
+  const visibleActions = useMemo(() => {
+    const filtered = actions.filter((action) => kindFilter === "all" || action.sentiment === kindFilter);
+    if (priceSort === "asc") return [...filtered].sort((a, b) => a.price - b.price);
+    if (priceSort === "desc") return [...filtered].sort((a, b) => b.price - a.price);
+    return filtered;
+  }, [actions, kindFilter, priceSort]);
 
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
@@ -420,12 +431,31 @@ function UserDashboard({ user, onUserChange }) {
 
       <Notice notice={notice} />
 
+      <section className="sort-toolbar" aria-label="Сортировка команд">
+        <div className="segmented">
+          <button className={kindFilter === "all" ? "active" : ""} type="button" onClick={() => setKindFilter("all")}>Все</button>
+          <button className={kindFilter === "good" ? "active" : ""} type="button" onClick={() => setKindFilter("good")}>
+            <ThumbsUp size={15} />
+            Хорошие
+          </button>
+          <button className={kindFilter === "bad" ? "active" : ""} type="button" onClick={() => setKindFilter("bad")}>
+            <ThumbsDown size={15} />
+            Плохие
+          </button>
+        </div>
+        <div className="segmented">
+          <button className={priceSort === "none" ? "active" : ""} type="button" onClick={() => setPriceSort("none")}>Сначала новые</button>
+          <button className={priceSort === "asc" ? "active" : ""} type="button" onClick={() => setPriceSort("asc")}>Дешевле</button>
+          <button className={priceSort === "desc" ? "active" : ""} type="button" onClick={() => setPriceSort("desc")}>Дороже</button>
+        </div>
+      </section>
+
       <section className="actions-grid">
         {loading && actions.length === 0 && <SkeletonCards count={4} />}
-        {!loading && actions.length === 0 && (
+        {!loading && visibleActions.length === 0 && (
           <EmptyState icon={Sparkles} title="Команд пока нет" text="Стример еще не добавил действия." />
         )}
-        {actions.map((action, index) => {
+        {visibleActions.map((action, index) => {
           const lacksCoins = user.balance < action.price;
           const isBusy = busy === action.id;
           const streamerOffline = !bridgeOnline;
@@ -448,6 +478,7 @@ function UserDashboard({ user, onUserChange }) {
 function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
   const details = [
+    action.sentiment === "bad" ? "плохая" : "хорошая",
     action.commandCount > 1 ? `${action.commandCount} команд` : "1 команда",
     action.commandMode === "random" ? `рандом ${Math.min(action.randomCount || 1, action.commandCount || 1)}` : "по очереди",
     action.stepDelayMs > 0 ? `${msLabel(action.stepDelayMs)} задержка` : ""
@@ -531,6 +562,22 @@ function AdminDashboard({ onUserChange }) {
     refresh();
   }, []);
 
+  async function resetData() {
+    const confirmed = window.confirm("Удалить статистику и всех зрителей? Стримерские аккаунты останутся.");
+    if (!confirmed) return;
+    setMessage("");
+    setLoading(true);
+    try {
+      await api.adminResetData();
+      setMessage("Статистика и зрители очищены");
+      await refresh({ silent: true });
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const bridgeOnline = Boolean(overview?.bridge?.connected);
   const tabs = [
     { id: "actions", label: "Команды", icon: Terminal, count: actions.length },
@@ -544,15 +591,15 @@ function AdminDashboard({ onUserChange }) {
       <section className="admin-hero">
         <AnimatedPanel>
           <h1>Панель стримера</h1>
-          <div className="status-row">
-            <StatusDot online={bridgeOnline} label={bridgeOnline ? "Bridge подключен" : "Bridge отключен"} />
-            <span>{bridgeOnline ? "команды доступны зрителям" : "команды недоступны зрителям"}</span>
-          </div>
         </AnimatedPanel>
         <div className="hero-actions">
           <button className="secondary-action" onClick={() => refresh()} type="button" disabled={loading}>
             <RefreshCcw size={17} className={loading ? "spin" : ""} />
             Обновить
+          </button>
+          <button className="secondary-action danger-action" onClick={resetData} type="button" disabled={loading}>
+            <Eraser size={17} />
+            Очистить данные
           </button>
         </div>
       </section>
@@ -602,11 +649,39 @@ function Metric({ icon: Icon, label, value, tone = "neutral" }) {
 }
 
 function AdminActions({ actions, refresh, setMessage }) {
-  const [form, setForm] = useState(EMPTY_ACTION_FORM);
+  const [form, setForm] = useState(emptyActionForm);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
-  const commandLines = useMemo(() => commandsFromText(form.commandsText).length, [form.commandsText]);
+  const commandLines = useMemo(() => form.commands.map((command) => command.trim()).filter(Boolean).length, [form.commands]);
   const randomLimit = Math.max(1, commandLines || 1);
+
+  function setCommand(index, value) {
+    setForm((current) => ({
+      ...current,
+      commands: current.commands.map((command, itemIndex) => (itemIndex === index ? value : command))
+    }));
+  }
+
+  function addCommand() {
+    setForm((current) => ({ ...current, commands: [...current.commands, ""] }));
+  }
+
+  function removeCommand(index) {
+    setForm((current) => ({
+      ...current,
+      commands: current.commands.length > 1 ? current.commands.filter((_, itemIndex) => itemIndex !== index) : [""]
+    }));
+  }
+
+  function moveCommand(index, direction) {
+    setForm((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.commands.length) return current;
+      const commands = [...current.commands];
+      [commands[index], commands[nextIndex]] = [commands[nextIndex], commands[index]];
+      return { ...current, commands };
+    });
+  }
 
   async function handleBanner(event) {
     const file = event.target.files?.[0];
@@ -630,13 +705,14 @@ function AdminActions({ actions, refresh, setMessage }) {
         title: form.title,
         description: form.description,
         price: Number(form.price),
-        commands: commandsFromText(form.commandsText),
+        commands: form.commands.map((command) => command.trim()).filter(Boolean),
         commandMode: form.commandMode,
+        sentiment: form.sentiment,
         randomCount: Number(form.randomCount),
         stepDelayMs: Number(form.stepDelaySeconds) * 1000,
         bannerUrl: form.bannerUrl
       });
-      setForm(EMPTY_ACTION_FORM);
+      setForm(emptyActionForm());
       setMessage("Команда создана");
       await refresh({ silent: true });
     } catch (err) {
@@ -700,7 +776,7 @@ function AdminActions({ actions, refresh, setMessage }) {
                 Загрузить фото
                 <input type="file" accept="image/*" onChange={handleBanner} />
               </label>
-              <small>Лучше 1280x720, JPG/WebP до 700 KB.</small>
+              <small>Лучше 1280x720, JPG/WebP/PNG до 7 MB.</small>
               {form.bannerUrl && (
                 <button className="link-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })}>
                   Убрать баннер
@@ -715,13 +791,35 @@ function AdminActions({ actions, refresh, setMessage }) {
         </label>
         <label className="field">
           <span>Команды Minecraft</span>
-          <textarea
-            required
-            className="mono command-input"
-            spellCheck="false"
-            value={form.commandsText}
-            onChange={(e) => setForm({ ...form, commandsText: e.target.value })}
-          />
+          <div className="command-fields">
+            {form.commands.map((command, index) => (
+              <div className="command-field-row" key={index}>
+                <textarea
+                  required={index === 0}
+                  className="mono command-field-input"
+                  spellCheck="false"
+                  value={command}
+                  placeholder={`Команда ${index + 1}`}
+                  onChange={(e) => setCommand(index, e.target.value)}
+                />
+                <div className="command-field-actions" aria-label="Порядок команды">
+                  <button className="icon-button compact" type="button" onClick={() => moveCommand(index, -1)} disabled={index === 0} title="Выше">
+                    <ChevronDown className="rotate-up" size={16} />
+                  </button>
+                  <button className="icon-button compact" type="button" onClick={() => moveCommand(index, 1)} disabled={index === form.commands.length - 1} title="Ниже">
+                    <ChevronDown size={16} />
+                  </button>
+                  <button className="icon-button compact danger" type="button" onClick={() => removeCommand(index)} title="Удалить поле">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button className="secondary-action compact add-command-button" type="button" onClick={addCommand}>
+              <Plus size={15} />
+              Добавить команду
+            </button>
+          </div>
         </label>
         <div className="mode-row">
           <button
@@ -739,6 +837,24 @@ function AdminActions({ actions, refresh, setMessage }) {
           >
             <Shuffle size={15} />
             Рандом
+          </button>
+        </div>
+        <div className="mode-row">
+          <button
+            className={form.sentiment === "good" ? "active good-choice" : ""}
+            type="button"
+            onClick={() => setForm({ ...form, sentiment: "good" })}
+          >
+            <ThumbsUp size={15} />
+            Хорошая
+          </button>
+          <button
+            className={form.sentiment === "bad" ? "active bad-choice" : ""}
+            type="button"
+            onClick={() => setForm({ ...form, sentiment: "bad" })}
+          >
+            <ThumbsDown size={15} />
+            Плохая
           </button>
         </div>
         <div className="split-inputs">
@@ -760,7 +876,7 @@ function AdminActions({ actions, refresh, setMessage }) {
           )}
         </div>
         <div className="form-foot">
-          <span>{commandLines || 0} строк</span>
+          <span>{commandLines || 0} команд</span>
           <ShinyButton className="primary-action compact" disabled={saving}>
             <BadgeCheck size={17} />
             {saving ? "Создаем" : "Создать"}
@@ -786,6 +902,9 @@ function AdminActions({ actions, refresh, setMessage }) {
                     <strong>{action.title}</strong>
                     <span className={`state-badge ${action.isEnabled ? "on" : "off"}`}>
                       {action.isEnabled ? "включена" : "выключена"}
+                    </span>
+                    <span className={`state-badge ${action.sentiment === "bad" ? "bad" : "good"}`}>
+                      {action.sentiment === "bad" ? "плохая" : "хорошая"}
                     </span>
                   </div>
                   <span>
@@ -973,20 +1092,34 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
 }
 
 function AdminUsers({ users }) {
-  const [selectedId, setSelectedId] = useState("");
+  const [query, setQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState(null);
+  const filteredUsers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return users;
+    return users.filter((user) => {
+      const haystack = `${user.name || ""} ${user.email || ""} ${user.role || ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [query, users]);
 
   return (
     <section className="panel">
-      <div className="panel-title">
-        <Users size={19} />
-        <h2>Пользователи</h2>
+      <div className="panel-title panel-title-split">
+        <div>
+          <Users size={19} />
+          <h2>Пользователи</h2>
+        </div>
+        <label className="input-icon user-search">
+          <Search size={17} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по имени" />
+        </label>
       </div>
       <div className="table-list">
         {users.length === 0 && <EmptyState icon={Users} title="Пользователей нет" text="После входа зрители появятся здесь." />}
-        {users.map((user) => {
-          const open = selectedId === user.id;
-          return (
-            <button className={`user-row user-row-button ${open ? "open" : ""}`} key={user.id} type="button" onClick={() => setSelectedId(open ? "" : user.id)}>
+        {users.length > 0 && filteredUsers.length === 0 && <EmptyState icon={Search} title="Никого не нашли" text="Проверь имя или очисти поиск." />}
+        {filteredUsers.map((user) => (
+            <button className="user-row user-row-button" key={user.id} type="button" onClick={() => setSelectedUser(user)}>
               <div className="user-line">
                 {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
                 <div>
@@ -994,19 +1127,40 @@ function AdminUsers({ users }) {
                   <span>{user.role === "admin" ? "Стример" : "Зритель"}</span>
                 </div>
               </div>
-              {open && (
-                <div className="user-stats">
-                  <StatMini label="Баланс" value={`${money(user.balance)} coins`} />
-                  <StatMini label="Получил" value={money(user.totalReceived)} />
-                  <StatMini label="Потратил" value={money(user.totalSpent)} />
-                  <StatMini label="Донатов" value={user.purchasesCount || 0} />
-                </div>
-              )}
+              <span>{user.purchasesCount || 0} донатов</span>
             </button>
-          );
-        })}
+        ))}
       </div>
+      {selectedUser && <UserDetailsModal user={selectedUser} onClose={() => setSelectedUser(null)} />}
     </section>
+  );
+}
+
+function UserDetailsModal({ user, onClose }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <SpotlightCard className="user-modal" role="dialog" aria-modal="true" aria-label="Профиль пользователя" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="icon-button modal-close" type="button" onClick={onClose} title="Закрыть">
+          <X size={18} />
+        </button>
+        <div className="modal-profile-head">
+          <div className="modal-avatar">
+            {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={38} />}
+          </div>
+          <div>
+            <span>{user.role === "admin" ? "Канал стримера" : "Канал зрителя"}</span>
+            <h3>{user.name || "Зритель"}</h3>
+            <p>Зарегистрирован: {dateTime(user.createdAt) || "нет даты"}</p>
+          </div>
+        </div>
+        <div className={`modal-stats ${user.role === "admin" ? "streamer-stats" : ""}`}>
+          {user.role !== "admin" && <StatMini label="Баланс" value={`${money(user.balance)} coins`} />}
+          <StatMini label="Получил" value={money(user.totalReceived)} />
+          <StatMini label="Потратил" value={money(user.totalSpent)} />
+          <StatMini label="Донатов" value={user.purchasesCount || 0} />
+        </div>
+      </SpotlightCard>
+    </div>
   );
 }
 
