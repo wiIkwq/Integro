@@ -70,20 +70,6 @@ function money(value) {
   return new Intl.NumberFormat("ru-RU").format(value || 0);
 }
 
-function coinWord(value) {
-  const number = Math.abs(Number(value) || 0);
-  const lastTwo = number % 100;
-  const last = number % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return "монет";
-  if (last === 1) return "монета";
-  if (last >= 2 && last <= 4) return "монеты";
-  return "монет";
-}
-
-function coinAmount(value) {
-  return `${money(value)} ${coinWord(value)}`;
-}
-
 function dateTime(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("ru-RU", {
@@ -365,7 +351,7 @@ function Shell({ user, onLogout, error, children }) {
           {user.role !== "admin" && (
             <div className="balance-chip">
               <Coins size={16} />
-              {coinAmount(user.balance)}
+              {money(user.balance)} coins
             </div>
           )}
           <div className="profile-wrap">
@@ -406,9 +392,9 @@ function ProfileStats({ user, stats, error, onLogout }) {
       )}
       {stats && user.role !== "admin" && (
         <div className="profile-stats-grid">
-          <StatMini label="Баланс" value={coinAmount(stats.balance)} />
-          <StatMini label="Пополнено" value={coinAmount(stats.totalReceived)} />
-          <StatMini label="Потрачено" value={coinAmount(stats.totalSpent)} />
+          <StatMini label="Баланс" value={`${money(stats.balance)} coins`} />
+          <StatMini label="Пополнено" value={money(stats.totalReceived)} />
+          <StatMini label="Потрачено" value={money(stats.totalSpent)} />
           <StatMini label="Команд отправил" value={stats.completedCount || 0} />
         </div>
       )}
@@ -474,7 +460,7 @@ function UserDashboard({ user, onUserChange }) {
     setNotice(null);
     try {
       const result = await api.redeemVoucher(code);
-      setNotice({ tone: "success", text: `Ваучер активирован: +${coinAmount(result.coins)}` });
+      setNotice({ tone: "success", text: `Ваучер активирован: +${money(result.coins)} coins` });
       setVoucher("");
       await refresh({ silent: true });
     } catch (err) {
@@ -552,7 +538,7 @@ function UserDashboard({ user, onUserChange }) {
               index={index}
               key={action.id}
               disabled={isBusy || lacksCoins || streamerOffline}
-              buttonText={streamerOffline ? "Стример оффлайн" : isBusy ? "Отправляем" : lacksCoins ? "Не хватает монет" : "Запустить"}
+              buttonText={streamerOffline ? "Стример оффлайн" : isBusy ? "Отправляем" : lacksCoins ? "Не хватает coins" : "Запустить"}
               onClick={() => buy(action)}
             />
           );
@@ -570,19 +556,12 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const sentimentLabel = action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект";
 
   return (
-    <SpotlightCard
-      className={`action-card ${action.bannerUrl ? "has-image" : ""} ${hasDiscount ? "is-discounted" : "is-regular"}`}
-      delay={index * 35}
-      style={cardStyle}
-    >
+    <SpotlightCard className={`action-card ${action.bannerUrl ? "has-image" : ""}`} delay={index * 35} style={cardStyle}>
       {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
       <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
         <SentimentIcon size={16} />
       </span>
       {!action.bannerUrl && <Gamepad2 className="action-bg-icon" size={56} />}
-      <div className={`price-anchor ${hasDiscount ? "discount-price-anchor" : "regular-price-anchor"}`}>
-        <PriceContent action={action} hasDiscount={hasDiscount} />
-      </div>
       <div className="action-body">
         <div className="action-copy">
           <h3>{action.title}</h3>
@@ -592,6 +571,7 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
             <Zap size={17} />
             {buttonText}
           </ShinyButton>
+          <PriceContent action={action} hasDiscount={hasDiscount} />
         </div>
       </div>
     </SpotlightCard>
@@ -610,11 +590,12 @@ function PriceContent({ action, hasDiscount }) {
       >
         <div className="price-inline discounted">
           <span className="price-current">
-            <span className="coin-pixel" aria-hidden="true" />
+            <Coins size={14} strokeWidth={2.8} />
             <strong>{money(action.price)}</strong>
           </span>
           <span className="price-discount-note">
             <del>{money(action.originalPrice)}</del>
+            <b>-{action.discount.percent}%</b>
           </span>
         </div>
       </ElectricBorder>
@@ -624,7 +605,7 @@ function PriceContent({ action, hasDiscount }) {
   return (
     <div className="price-inline">
       <span className="price-current">
-        <span className="coin-pixel" aria-hidden="true" />
+        <Coins size={14} strokeWidth={2.8} />
         <strong>{money(action.price)}</strong>
       </span>
     </div>
@@ -733,8 +714,8 @@ function AdminDashboard({ onUserChange }) {
       </section>
 
       <section className="metrics metrics-wide">
-        <Metric icon={Coins} label="Получено" value={coinAmount(overview?.totalReceived || 0)} />
-        <Metric icon={Zap} label="Потрачено" value={coinAmount(overview?.totalSpent || 0)} />
+        <Metric icon={Coins} label="Получено" value={money(overview?.totalReceived || 0)} />
+        <Metric icon={Zap} label="Потрачено" value={money(overview?.totalSpent || 0)} />
         <Metric icon={Ticket} label="Активаций" value={overview?.voucherRedemptionsCount || 0} />
         <Metric icon={Terminal} label="Донатов" value={overview?.purchasesCount || 0} />
         <Metric icon={Users} label="Пользователей" value={overview?.usersCount || 0} />
@@ -1057,7 +1038,7 @@ function AdminActions({ actions, refresh, setMessage }) {
                     </span>
                   </div>
                   <span>
-                    {coinAmount(action.price)} · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
+                    {money(action.price)} coins · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
                     {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
                     {action.discount ? ` · скидка ${action.discount.percent}% · ${discountTimeLabel(action.discount)}` : ""}
                   </span>
@@ -1332,7 +1313,7 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
         </label>
         <div className="split-inputs">
           <label className="field">
-            <span>Монеты</span>
+            <span>Coins</span>
             <input required type="number" min="1" value={form.coins} onChange={(e) => setForm({ ...form, coins: e.target.value })} />
           </label>
           <label className="field">
@@ -1373,7 +1354,7 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
                   </span>
                 </div>
                 <span>
-                  {coinAmount(voucher.coins)} · {voucher.redeemedCount}/{voucher.maxRedemptions} · на аккаунт {voucher.perUserLimit}
+                  {money(voucher.coins)} coins · {voucher.redeemedCount}/{voucher.maxRedemptions} · на аккаунт {voucher.perUserLimit}
                   {voucher.perUserCooldownSeconds > 0 ? ` · задержка ${cooldownLabel(voucher.perUserCooldownSeconds)}` : ""}
                 </span>
               </div>
@@ -1455,7 +1436,7 @@ function AdminDiscounts({ actions, discounts, refresh, setMessage }) {
             <option value="">Выбери команду</option>
             {actions.map((action) => (
               <option key={action.id} value={action.id}>
-                {action.title} · {coinAmount(action.originalPrice || action.price)}
+                {action.title} · {money(action.originalPrice || action.price)} coins
               </option>
             ))}
           </select>
@@ -1492,7 +1473,7 @@ function AdminDiscounts({ actions, discounts, refresh, setMessage }) {
                   </span>
                 </div>
                 <span>
-                  {coinAmount(discount.originalPrice)} &rarr; {coinAmount(discount.discountedPrice)} · {discountTimeLabel(discount)}
+                  {money(discount.originalPrice)} coins &rarr; {money(discount.discountedPrice)} coins · {discountTimeLabel(discount)}
                 </span>
               </div>
               <div className="row-actions">
@@ -1570,9 +1551,9 @@ function UserDetailsModal({ user, onClose }) {
           </div>
         </div>
         <div className={`modal-stats ${user.role === "admin" ? "streamer-stats" : ""}`}>
-          {user.role !== "admin" && <StatMini label="Баланс" value={coinAmount(user.balance)} />}
-          <StatMini label="Получил" value={coinAmount(user.totalReceived)} />
-          <StatMini label="Потратил" value={coinAmount(user.totalSpent)} />
+          {user.role !== "admin" && <StatMini label="Баланс" value={`${money(user.balance)} coins`} />}
+          <StatMini label="Получил" value={money(user.totalReceived)} />
+          <StatMini label="Потратил" value={money(user.totalSpent)} />
           <StatMini label="Донатов" value={user.purchasesCount || 0} />
         </div>
     </ModalFrame>
@@ -1593,7 +1574,7 @@ function AdminDonations({ purchases }) {
             <div>
               <strong>{purchase.title}</strong>
               <span>
-                {purchase.userName || "Зритель"} · {coinAmount(purchase.amount)} · {dateTime(purchase.createdAt)}
+                {purchase.userName || "Зритель"} · {money(purchase.amount)} coins · {dateTime(purchase.createdAt)}
               </span>
               {purchase.errorMessage && <small className="row-error">{purchase.errorMessage}</small>}
             </div>
