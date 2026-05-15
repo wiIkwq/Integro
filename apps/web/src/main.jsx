@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BadgeCheck,
@@ -58,6 +58,13 @@ const STATUS_META = {
   failed: { label: "Ошибка", tone: "failed" },
   refunded: { label: "Возврат", tone: "refunded" }
 };
+
+const BANNER_WIDTH = 1280;
+const BANNER_HEIGHT = 720;
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
 
 function money(value) {
   return new Intl.NumberFormat("ru-RU").format(value || 0);
@@ -139,22 +146,35 @@ function loadImage(source) {
 
 async function cropBannerImage(crop) {
   const image = await loadImage(crop.source);
-  const width = 1280;
-  const height = 720;
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = BANNER_WIDTH;
+  canvas.height = BANNER_HEIGHT;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas недоступен");
-  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight) * Number(crop.zoom || 1);
-  const drawWidth = image.naturalWidth * scale;
-  const drawHeight = image.naturalHeight * scale;
-  const x = (width - drawWidth) / 2 + (Number(crop.offsetX || 0) / 100) * (width / 2);
-  const y = (height - drawHeight) / 2 + (Number(crop.offsetY || 0) / 100) * (height / 2);
-  context.fillStyle = "#070807";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, x, y, drawWidth, drawHeight);
+  const metrics = getBannerCropMetrics(crop, image.naturalWidth, image.naturalHeight);
+  const x = (BANNER_WIDTH - metrics.drawWidth) / 2 + metrics.offsetX;
+  const y = (BANNER_HEIGHT - metrics.drawHeight) / 2 + metrics.offsetY;
+  context.clearRect(0, 0, BANNER_WIDTH, BANNER_HEIGHT);
+  context.drawImage(image, x, y, metrics.drawWidth, metrics.drawHeight);
   return canvas.toDataURL("image/webp", 0.9);
+}
+
+function getBannerCropMetrics(crop, imageWidth = crop.width, imageHeight = crop.height) {
+  const sourceWidth = Math.max(1, Number(imageWidth) || BANNER_WIDTH);
+  const sourceHeight = Math.max(1, Number(imageHeight) || BANNER_HEIGHT);
+  const zoom = clamp(Number(crop.zoom || 1), 1, 3);
+  const scale = Math.max(BANNER_WIDTH / sourceWidth, BANNER_HEIGHT / sourceHeight) * zoom;
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  const maxOffsetX = Math.max(0, (drawWidth - BANNER_WIDTH) / 2);
+  const maxOffsetY = Math.max(0, (drawHeight - BANNER_HEIGHT) / 2);
+  return {
+    zoom,
+    drawWidth,
+    drawHeight,
+    offsetX: clamp(Number(crop.offsetX || 0), -maxOffsetX, maxOffsetX),
+    offsetY: clamp(Number(crop.offsetY || 0), -maxOffsetY, maxOffsetY)
+  };
 }
 
 function StatusPill({ status }) {
@@ -569,10 +589,13 @@ function PriceContent({ action, hasDiscount }) {
         borderRadius={0}
       >
         <div className="price-inline discounted">
-          <del>{money(action.originalPrice)}</del>
           <span className="price-current">
             <Coins size={14} strokeWidth={2.8} />
             <strong>{money(action.price)}</strong>
+          </span>
+          <span className="price-discount-note">
+            <del>{money(action.originalPrice)}</del>
+            <b>-{action.discount.percent}%</b>
           </span>
         </div>
       </ElectricBorder>
@@ -777,7 +800,15 @@ function AdminActions({ actions, refresh, setMessage }) {
     if (!file) return;
     try {
       const source = await fileToDataUrl(file);
-      setPendingBanner({ source, zoom: 1, offsetX: 0, offsetY: 0 });
+      const image = await loadImage(source);
+      setPendingBanner({
+        source,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        width: image.naturalWidth,
+        height: image.naturalHeight
+      });
     } catch (err) {
       setMessage(err.message);
     } finally {
@@ -1049,11 +1080,65 @@ function AdminActions({ actions, refresh, setMessage }) {
 }
 
 function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
-  const previewStyle = {
-    backgroundImage: `url(${crop.source})`,
-    backgroundSize: `${100 * Number(crop.zoom || 1)}% auto`,
-    backgroundPosition: `${50 + Number(crop.offsetX || 0)}% ${50 + Number(crop.offsetY || 0)}%`
+  const frameRef = useRef(null);
+  const dragRef = useRef(null);
+  const metrics = getBannerCropMetrics(crop);
+  const imageStyle = {
+    width: `${(metrics.drawWidth / BANNER_WIDTH) * 100}%`,
+    height: `${(metrics.drawHeight / BANNER_HEIGHT) * 100}%`,
+    left: `calc(50% + ${(metrics.offsetX / BANNER_WIDTH) * 100}%)`,
+    top: `calc(50% + ${(metrics.offsetY / BANNER_HEIGHT) * 100}%)`
   };
+
+  function setClampedCrop(nextCrop) {
+    const nextMetrics = getBannerCropMetrics(nextCrop);
+    setCrop({
+      ...nextCrop,
+      zoom: nextMetrics.zoom,
+      offsetX: nextMetrics.offsetX,
+      offsetY: nextMetrics.offsetY
+    });
+  }
+
+  function setZoom(delta) {
+    setClampedCrop({ ...crop, zoom: Number(crop.zoom || 1) + delta });
+  }
+
+  function resetCrop() {
+    setClampedCrop({ ...crop, zoom: 1, offsetX: 0, offsetY: 0 });
+  }
+
+  function handlePointerDown(event) {
+    const rect = frameRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffsetX: metrics.offsetX,
+      startOffsetY: metrics.offsetY,
+      rect
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = ((event.clientX - drag.startX) / drag.rect.width) * BANNER_WIDTH;
+    const deltaY = ((event.clientY - drag.startY) / drag.rect.height) * BANNER_HEIGHT;
+    setClampedCrop({
+      ...crop,
+      offsetX: drag.startOffsetX + deltaX,
+      offsetY: drag.startOffsetY + deltaY
+    });
+  }
+
+  function handlePointerUp(event) {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+  }
 
   return (
     <ModalFrame onClose={onCancel} className="crop-modal" label="Кадрирование баннера">
@@ -1066,20 +1151,26 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
           <X size={18} />
         </button>
       </div>
-      <div className="crop-preview" style={previewStyle} />
-      <div className="crop-controls">
-        <label className="field">
-          <span>Масштаб</span>
-          <input type="range" min="1" max="3" step="0.01" value={crop.zoom} onChange={(e) => setCrop({ ...crop, zoom: e.target.value })} />
-        </label>
-        <label className="field">
-          <span>По горизонтали</span>
-          <input type="range" min="-50" max="50" step="1" value={crop.offsetX} onChange={(e) => setCrop({ ...crop, offsetX: e.target.value })} />
-        </label>
-        <label className="field">
-          <span>По вертикали</span>
-          <input type="range" min="-50" max="50" step="1" value={crop.offsetY} onChange={(e) => setCrop({ ...crop, offsetY: e.target.value })} />
-        </label>
+      <div
+        className="crop-frame"
+        ref={frameRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <img className="crop-image" src={crop.source} alt="" draggable="false" style={imageStyle} />
+        <div className="crop-grid" aria-hidden="true" />
+      </div>
+      <div className="crop-toolbar">
+        <span>1280x720</span>
+        <div>
+          <button className="secondary-action compact icon-only" type="button" onClick={() => setZoom(-0.08)} title="Уменьшить">-</button>
+          <button className="secondary-action compact icon-only" type="button" onClick={resetCrop} title="Сбросить">
+            <RefreshCcw size={15} />
+          </button>
+          <button className="secondary-action compact icon-only" type="button" onClick={() => setZoom(0.08)} title="Увеличить">+</button>
+        </div>
       </div>
       <div className="modal-actions">
         <button className="secondary-action compact" type="button" onClick={onCancel}>Отмена</button>
