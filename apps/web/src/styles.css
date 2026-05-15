@@ -1,3 +1,13 @@
+@font-face {
+  font-family: "Minecraft Rus";
+  src:
+    local("Minecraft Rus"),
+    local("MinecraftRus"),
+    local("Minecraft Cyrillic"),
+    local("Minecraftia");
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -23,6 +33,7 @@
   --shadow: 8px 8px 0 #e7f4e4;
   --shadow-small: 4px 4px 0 #e7f4e4;
   --shadow-accent: 8px 8px 0 #7cff9b;
+  --minecraft-font: "Minecraft Rus", "Minecraft", "Minecraftia", "Press Start 2P", "SFMono-Regular", Consolas, monospace;
 }
 
 * {
@@ -897,12 +908,12 @@ code {
 .action-card {
   position: relative;
   display: grid;
-  min-height: 286px;
+  min-height: 236px;
   align-content: stretch;
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 10%, rgba(124, 255, 155, 0.22), transparent 32%),
-    radial-gradient(circle at 86% 86%, rgba(255, 207, 107, 0.16), transparent 30%),
+    radial-gradient(circle at 18% 10%, rgba(124, 255, 155, 0.16), transparent 30%),
+    radial-gradient(circle at 86% 86%, rgba(255, 207, 107, 0.1), transparent 28%),
     repeating-linear-gradient(45deg, rgba(231, 244, 228, 0.08) 0 2px, transparent 2px 13px),
     var(--panel);
   background-position: center;
@@ -921,7 +932,7 @@ code {
   z-index: 0;
   content: "";
   background:
-    linear-gradient(180deg, rgba(7, 8, 7, 0.24), rgba(7, 8, 7, 0.78)),
+    linear-gradient(180deg, rgba(7, 8, 7, 0.28), rgba(7, 8, 7, 0.82)),
     linear-gradient(90deg, rgba(7, 8, 7, 0.76), rgba(7, 8, 7, 0.18));
   pointer-events: none;
 }
@@ -939,66 +950,26 @@ code {
 
 .action-bg-icon {
   position: absolute;
-  right: 10px;
-  bottom: 78px;
-  z-index: 0;
-  color: rgba(183, 255, 201, 0.15);
-  filter: drop-shadow(0 0 18px rgba(124, 255, 155, 0.22));
-}
-
-.action-vibe {
-  position: absolute;
   right: 12px;
-  bottom: 76px;
-  z-index: 1;
-  display: grid;
-  width: 74px;
-  gap: 7px;
-  opacity: 0.72;
-  pointer-events: none;
-}
-
-.action-vibe span {
-  display: block;
-  height: 5px;
-  border: 1px solid rgba(231, 244, 228, 0.36);
-  background: linear-gradient(90deg, transparent, rgba(124, 255, 155, 0.68), transparent);
-  box-shadow: 0 0 18px rgba(124, 255, 155, 0.16);
-  transform: skewX(-20deg);
-  animation: vibe-scan 2.4s ease-in-out infinite;
-}
-
-.action-card.has-discount .action-vibe span {
-  background: linear-gradient(90deg, transparent, rgba(255, 207, 107, 0.7), transparent);
-  box-shadow: 0 0 18px rgba(255, 207, 107, 0.18);
-}
-
-.action-vibe span:nth-child(2) {
-  width: 70%;
-  margin-left: auto;
-  animation-delay: 0.24s;
-}
-
-.action-vibe span:nth-child(3) {
-  width: 46%;
-  margin-left: auto;
-  animation-delay: 0.48s;
+  bottom: 68px;
+  z-index: 0;
+  color: rgba(183, 255, 201, 0.11);
 }
 
 .action-body {
   display: grid;
   min-height: 100%;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 54px 14px 14px;
+  gap: 12px;
+  padding: 48px 12px 12px;
 }
 
 .action-copy {
   display: grid;
   align-self: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  max-width: 88%;
+  max-width: 92%;
 }
 
 .action-copy h3 {
@@ -1006,8 +977,10 @@ code {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-size: 26px;
-  line-height: 1.04;
+  font-family: var(--minecraft-font);
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.18;
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
 }
 
@@ -1026,10 +999,10 @@ code {
 }
 
 .effect-mark {
-  top: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
+  top: 9px;
+  right: 9px;
+  width: 30px;
+  height: 30px;
 }
 
 .effect-mark.good {
@@ -1041,12 +1014,12 @@ code {
 }
 
 .discount-corner {
-  top: 10px;
-  left: 10px;
-  min-height: 30px;
-  padding: 0 9px;
+  top: 9px;
+  left: 9px;
+  min-height: 28px;
+  padding: 0 8px;
   color: var(--amber);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .action-top > span {
@@ -1065,16 +1038,16 @@ code {
 
 .price-electric {
   flex: 0 0 auto;
-  min-width: 76px;
+  min-width: 68px;
 }
 
 .price-card {
   display: grid;
-  min-width: 76px;
-  min-height: 42px;
+  min-width: 68px;
+  min-height: 38px;
   align-content: center;
   gap: 1px;
-  padding: 5px 9px;
+  padding: 4px 8px;
   border: 2px solid rgba(231, 244, 228, 0.58);
   background:
     linear-gradient(135deg, rgba(124, 255, 155, 0.12), rgba(7, 8, 7, 0.94)),
@@ -1092,7 +1065,7 @@ code {
 }
 
 .price-card strong {
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1;
 }
 
@@ -1103,7 +1076,7 @@ code {
 }
 
 .old-price-row del {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 850;
 }
 
@@ -1114,6 +1087,7 @@ code {
   color: rgba(247, 251, 243, 0.8);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  font-size: 13px;
   line-height: 1.45;
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
@@ -1122,8 +1096,8 @@ code {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  gap: 10px;
-  padding-top: 10px;
+  gap: 8px;
+  padding-top: 8px;
   border-top: 1px solid rgba(231, 244, 228, 0.18);
 }
 
@@ -1154,7 +1128,9 @@ code {
   min-width: 0;
   flex: 0 1 auto;
   margin: 0;
-  padding-inline: 12px;
+  min-height: 38px;
+  padding-inline: 10px;
+  font-size: 13px;
   white-space: normal;
 }
 
@@ -1809,18 +1785,6 @@ code {
   }
   to {
     background-position: -200% 0;
-  }
-}
-
-@keyframes vibe-scan {
-  0%,
-  100% {
-    opacity: 0.38;
-    transform: translateX(8px) skewX(-20deg);
-  }
-  50% {
-    opacity: 1;
-    transform: translateX(0) skewX(-20deg);
   }
 }
 
