@@ -838,6 +838,62 @@ code {
   animation: shine 3.6s ease-in-out infinite;
 }
 
+.electric-border {
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.eb-canvas-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.eb-canvas {
+  display: block;
+}
+
+.eb-content {
+  position: relative;
+  z-index: 1;
+}
+
+.eb-layers,
+.eb-glow-1,
+.eb-glow-2,
+.eb-background-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.eb-layers {
+  z-index: 0;
+}
+
+.eb-glow-1 {
+  border: 2px solid color-mix(in srgb, var(--electric-border-color) 64%, transparent);
+  filter: blur(1px);
+}
+
+.eb-glow-2 {
+  border: 2px solid color-mix(in srgb, var(--electric-border-color) 86%, white 14%);
+  filter: blur(4px);
+}
+
+.eb-background-glow {
+  z-index: -1;
+  background: linear-gradient(-30deg, var(--electric-border-color), transparent, var(--electric-border-color));
+  filter: blur(26px);
+  opacity: 0.22;
+  transform: scale(1.08);
+}
+
 .actions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -850,6 +906,7 @@ code {
 }
 
 .action-banner {
+  position: relative;
   display: grid;
   min-height: 132px;
   place-items: center;
@@ -865,10 +922,6 @@ code {
 .action-card:hover .action-banner {
   transform: scale(1.015);
   filter: saturate(1.08);
-}
-
-.action-banner.has-image {
-  position: relative;
 }
 
 .action-banner.has-image::after {
@@ -899,7 +952,45 @@ code {
   line-height: 1.18;
 }
 
-.action-top span {
+.effect-mark,
+.discount-corner {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(231, 244, 228, 0.78);
+  background: rgba(7, 8, 7, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow: 3px 3px 0 rgba(231, 244, 228, 0.35);
+  font-weight: 950;
+}
+
+.effect-mark {
+  top: 10px;
+  left: 10px;
+  width: 34px;
+  height: 34px;
+}
+
+.effect-mark.good {
+  color: var(--accent-strong);
+}
+
+.effect-mark.bad {
+  color: #ffb7c9;
+}
+
+.discount-corner {
+  right: 10px;
+  bottom: 10px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.action-top > span {
   flex: 0 0 auto;
   max-width: 112px;
   padding: 6px 8px;
@@ -913,16 +1004,63 @@ code {
   white-space: normal;
 }
 
-.action-top .price-pill.discounted {
-  display: grid;
-  gap: 2px;
-  max-width: 132px;
+.price-electric {
+  flex: 0 0 auto;
+  min-width: 102px;
 }
 
-.price-pill del {
+.price-card {
+  display: grid;
+  min-width: 102px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 2px solid rgba(231, 244, 228, 0.58);
+  background:
+    linear-gradient(135deg, rgba(124, 255, 155, 0.12), rgba(7, 8, 7, 0.94)),
+    var(--bg);
+  color: var(--accent-strong);
+  text-align: right;
+}
+
+.price-electric.discounted .price-card {
+  border-color: rgba(255, 207, 107, 0.72);
+  background:
+    linear-gradient(135deg, rgba(255, 207, 107, 0.18), rgba(7, 8, 7, 0.94)),
+    var(--bg);
+  color: var(--amber);
+}
+
+.price-card strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.price-card > span {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.old-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.old-price-row del {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.old-price-row b {
+  padding: 1px 5px;
+  background: var(--amber);
+  color: #070807;
+  font-size: 11px;
+  font-weight: 950;
 }
 
 .action-body p {

@@ -36,7 +36,7 @@ import {
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
+import { AnimatedPanel, ElectricBorder, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
 
 function emptyActionForm() {
@@ -531,29 +531,43 @@ function UserDashboard({ user, onUserChange }) {
 
 function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
-  const details = [
-    action.sentiment === "bad" ? "плохая" : "хорошая",
-    action.discount ? `скидка ${action.discount.percent}% · ${discountTimeLabel(action.discount)}` : ""
-  ].filter(Boolean);
   const hasDiscount = Boolean(action.discount);
+  const sentimentIcon = action.sentiment === "bad" ? ThumbsDown : ThumbsUp;
+  const SentimentIcon = sentimentIcon;
+  const sentimentLabel = action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект";
 
   return (
     <SpotlightCard className="action-card" delay={index * 35}>
       <div className={`action-banner ${action.bannerUrl ? "has-image" : ""}`} style={bannerStyle}>
+        <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
+          <SentimentIcon size={16} />
+        </span>
+        {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
         {!action.bannerUrl && <Gamepad2 size={32} />}
       </div>
       <div className="action-body">
         <div className="action-top">
           <h3>{action.title}</h3>
-          <span className={hasDiscount ? "price-pill discounted" : ""}>
-            {hasDiscount && <del>{money(action.originalPrice)} coins</del>}
-            {money(action.price)} coins
-          </span>
+          <ElectricBorder
+            className={`price-electric ${hasDiscount ? "discounted" : ""}`}
+            color={hasDiscount ? "#ffcf6b" : "#7cff9b"}
+            speed={1.7}
+            chaos={0.04}
+            borderRadius={0}
+          >
+            <div className="price-card">
+              {hasDiscount && (
+                <div className="old-price-row">
+                  <del>{money(action.originalPrice)}</del>
+                  <b>-{action.discount.percent}%</b>
+                </div>
+              )}
+              <strong>{money(action.price)}</strong>
+              <span>coins</span>
+            </div>
+          </ElectricBorder>
         </div>
         {action.description && <p>{action.description}</p>}
-        <div className="action-meta">
-          {details.map((item) => <span key={item}>{item}</span>)}
-        </div>
       </div>
       <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
         <Zap size={17} />
