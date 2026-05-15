@@ -159,10 +159,18 @@ async function cropBannerImage(crop) {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas недоступен");
   const metrics = getBannerCropMetrics(crop, image.naturalWidth, image.naturalHeight);
-  const x = (BANNER_WIDTH - metrics.drawWidth) / 2 + metrics.offsetX;
-  const y = (BANNER_HEIGHT - metrics.drawHeight) / 2 + metrics.offsetY;
   context.clearRect(0, 0, BANNER_WIDTH, BANNER_HEIGHT);
-  context.drawImage(image, x, y, metrics.drawWidth, metrics.drawHeight);
+  context.drawImage(
+    image,
+    metrics.sourceX,
+    metrics.sourceY,
+    metrics.cropWidth,
+    metrics.cropHeight,
+    0,
+    0,
+    BANNER_WIDTH,
+    BANNER_HEIGHT
+  );
   return canvas.toDataURL("image/webp", 0.9);
 }
 
@@ -170,17 +178,28 @@ function getBannerCropMetrics(crop, imageWidth = crop.width, imageHeight = crop.
   const sourceWidth = Math.max(1, Number(imageWidth) || BANNER_WIDTH);
   const sourceHeight = Math.max(1, Number(imageHeight) || BANNER_HEIGHT);
   const zoom = clamp(Number(crop.zoom || 1), 1, 3);
-  const scale = Math.max(BANNER_WIDTH / sourceWidth, BANNER_HEIGHT / sourceHeight) * zoom;
-  const drawWidth = sourceWidth * scale;
-  const drawHeight = sourceHeight * scale;
-  const maxOffsetX = Math.max(0, (drawWidth - BANNER_WIDTH) / 2);
-  const maxOffsetY = Math.max(0, (drawHeight - BANNER_HEIGHT) / 2);
+  const targetAspect = BANNER_WIDTH / BANNER_HEIGHT;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const maxCropWidth = sourceAspect > targetAspect ? sourceHeight * targetAspect : sourceWidth;
+  const maxCropHeight = sourceAspect > targetAspect ? sourceHeight : sourceWidth / targetAspect;
+  const cropWidth = maxCropWidth / zoom;
+  const cropHeight = maxCropHeight / zoom;
+  const maxOffsetX = Math.max(0, (sourceWidth - cropWidth) / 2);
+  const maxOffsetY = Math.max(0, (sourceHeight - cropHeight) / 2);
+  const offsetX = clamp(Number(crop.offsetX || 0), -maxOffsetX, maxOffsetX);
+  const offsetY = clamp(Number(crop.offsetY || 0), -maxOffsetY, maxOffsetY);
+  const sourceX = (sourceWidth - cropWidth) / 2 + offsetX;
+  const sourceY = (sourceHeight - cropHeight) / 2 + offsetY;
   return {
     zoom,
-    drawWidth,
-    drawHeight,
-    offsetX: clamp(Number(crop.offsetX || 0), -maxOffsetX, maxOffsetX),
-    offsetY: clamp(Number(crop.offsetY || 0), -maxOffsetY, maxOffsetY)
+    sourceWidth,
+    sourceHeight,
+    cropWidth,
+    cropHeight,
+    sourceX,
+    sourceY,
+    offsetX,
+    offsetY
   };
 }
 
@@ -1056,14 +1075,23 @@ function AdminActions({ actions, refresh, setMessage }) {
 }
 
 function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
-  const frameRef = useRef(null);
+  const stageRef = useRef(null);
   const dragRef = useRef(null);
   const metrics = getBannerCropMetrics(crop);
-  const imageStyle = {
-    width: `${(metrics.drawWidth / BANNER_WIDTH) * 100}%`,
-    height: `${(metrics.drawHeight / BANNER_HEIGHT) * 100}%`,
-    left: `calc(50% + ${(metrics.offsetX / BANNER_WIDTH) * 100}%)`,
-    top: `calc(50% + ${(metrics.offsetY / BANNER_HEIGHT) * 100}%)`
+  const cropLeft = (metrics.sourceX / metrics.sourceWidth) * 100;
+  const cropTop = (metrics.sourceY / metrics.sourceHeight) * 100;
+  const cropWidth = (metrics.cropWidth / metrics.sourceWidth) * 100;
+  const cropHeight = (metrics.cropHeight / metrics.sourceHeight) * 100;
+  const cropRight = Math.max(0, 100 - cropLeft - cropWidth);
+  const cropBottom = Math.max(0, 100 - cropTop - cropHeight);
+  const stageStyle = {
+    "--crop-aspect": metrics.sourceWidth / metrics.sourceHeight
+  };
+  const cropWindowStyle = {
+    left: `${cropLeft}%`,
+    top: `${cropTop}%`,
+    width: `${cropWidth}%`,
+    height: `${cropHeight}%`
   };
 
   function setClampedCrop(nextCrop) {
@@ -1085,7 +1113,7 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
   }
 
   function handlePointerDown(event) {
-    const rect = frameRef.current?.getBoundingClientRect();
+    const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
     dragRef.current = {
       pointerId: event.pointerId,
@@ -1101,8 +1129,8 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
   function handlePointerMove(event) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const deltaX = ((event.clientX - drag.startX) / drag.rect.width) * BANNER_WIDTH;
-    const deltaY = ((event.clientY - drag.startY) / drag.rect.height) * BANNER_HEIGHT;
+    const deltaX = ((event.clientX - drag.startX) / drag.rect.width) * metrics.sourceWidth;
+    const deltaY = ((event.clientY - drag.startY) / drag.rect.height) * metrics.sourceHeight;
     setClampedCrop({
       ...crop,
       offsetX: drag.startOffsetX + deltaX,
@@ -1127,16 +1155,25 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
           <X size={18} />
         </button>
       </div>
-      <div
-        className="crop-frame"
-        ref={frameRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      >
-        <img className="crop-image" src={crop.source} alt="" draggable="false" style={imageStyle} />
-        <div className="crop-grid" aria-hidden="true" />
+      <div className="crop-stage-shell">
+        <div
+          className="crop-stage"
+          ref={stageRef}
+          style={stageStyle}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <img className="crop-full-image" src={crop.source} alt="" draggable="false" />
+          <div className="crop-shade" style={{ left: 0, top: 0, width: "100%", height: `${cropTop}%` }} aria-hidden="true" />
+          <div className="crop-shade" style={{ left: 0, top: `${cropTop + cropHeight}%`, width: "100%", height: `${cropBottom}%` }} aria-hidden="true" />
+          <div className="crop-shade" style={{ left: 0, top: `${cropTop}%`, width: `${cropLeft}%`, height: `${cropHeight}%` }} aria-hidden="true" />
+          <div className="crop-shade" style={{ left: `${cropLeft + cropWidth}%`, top: `${cropTop}%`, width: `${cropRight}%`, height: `${cropHeight}%` }} aria-hidden="true" />
+          <div className="crop-window" style={cropWindowStyle} aria-hidden="true">
+            <div className="crop-grid" />
+          </div>
+        </div>
       </div>
       <div className="crop-toolbar">
         <span>1280x720</span>
