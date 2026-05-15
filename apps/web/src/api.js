@@ -69,10 +69,6 @@ export const api = {
   updateVoucher: (id, body) =>
     request(`/admin/vouchers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteVoucher: (id) => request(`/admin/vouchers/${id}`, { method: "DELETE" }),
-  adminDiscounts: () => request("/admin/discounts"),
-  createDiscount: (body) =>
-    request("/admin/discounts", { method: "POST", body: JSON.stringify(body) }),
-  deleteDiscount: (id) => request(`/admin/discounts/${id}`, { method: "DELETE" }),
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
   adminResetData: () => request("/admin/reset", { method: "POST" }),

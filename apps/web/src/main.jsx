@@ -13,7 +13,6 @@ import {
   Loader2,
   LogOut,
   Maximize2,
-  Percent,
   Plus,
   Power,
   RefreshCcw,
@@ -36,7 +35,7 @@ import {
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, ElectricBorder, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
+import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
 
 function emptyActionForm() {
@@ -115,12 +114,6 @@ function roleTitle(user) {
   if (email === "bogdan3000tm@gmail.com") return "Тестер";
   if (email === "ihnatenko.bogdan@gmail.com") return "Разработчик";
   return user?.role === "admin" ? "Стример" : "Зритель";
-}
-
-function discountTimeLabel(discount) {
-  if (!discount) return "";
-  if (!discount.expiresAt) return "постоянная скидка";
-  return `ограниченное время: до ${dateTime(discount.expiresAt)}`;
 }
 
 function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
@@ -550,14 +543,12 @@ function UserDashboard({ user, onUserChange }) {
 
 function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const cardStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
-  const hasDiscount = Boolean(action.discount);
   const sentimentIcon = action.sentiment === "bad" ? ThumbsDown : ThumbsUp;
   const SentimentIcon = sentimentIcon;
   const sentimentLabel = action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект";
 
   return (
     <SpotlightCard className={`action-card ${action.bannerUrl ? "has-image" : ""}`} delay={index * 35} style={cardStyle}>
-      {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
       <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
         <SentimentIcon size={16} />
       </span>
@@ -571,37 +562,14 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
             <Zap size={17} />
             {buttonText}
           </ShinyButton>
-          <PriceContent action={action} hasDiscount={hasDiscount} />
+          <PriceContent action={action} />
         </div>
       </div>
     </SpotlightCard>
   );
 }
 
-function PriceContent({ action, hasDiscount }) {
-  if (hasDiscount) {
-    return (
-      <ElectricBorder
-        className="discount-price-border"
-        color="#ffcf6b"
-        speed={0.45}
-        chaos={0.015}
-        borderRadius={0}
-      >
-        <div className="price-inline discounted">
-          <span className="price-current">
-            <Coins size={14} strokeWidth={2.8} />
-            <strong>{money(action.price)}</strong>
-          </span>
-          <span className="price-discount-note">
-            <del>{money(action.originalPrice)}</del>
-            <b>-{action.discount.percent}%</b>
-          </span>
-        </div>
-      </ElectricBorder>
-    );
-  }
-
+function PriceContent({ action }) {
   return (
     <div className="price-inline">
       <span className="price-current">
@@ -627,7 +595,6 @@ function AdminDashboard({ onUserChange }) {
   const [tab, setTab] = useState("actions");
   const [actions, setActions] = useState([]);
   const [vouchers, setVouchers] = useState([]);
-  const [discounts, setDiscounts] = useState([]);
   const [users, setUsers] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -643,12 +610,11 @@ function AdminDashboard({ onUserChange }) {
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
     try {
-      const [me, nextOverview, nextActions, nextVouchers, nextDiscounts, nextUsers, nextPurchases] = await Promise.all([
+      const [me, nextOverview, nextActions, nextVouchers, nextUsers, nextPurchases] = await Promise.all([
         api.me(),
         api.adminOverview(),
         api.adminActions(),
         api.adminVouchers(),
-        api.adminDiscounts(),
         api.adminUsers(),
         api.adminPurchases()
       ]);
@@ -656,7 +622,6 @@ function AdminDashboard({ onUserChange }) {
       setOverview(nextOverview);
       setActions(nextActions.actions);
       setVouchers(nextVouchers.vouchers);
-      setDiscounts(nextDiscounts.discounts);
       setUsers(nextUsers.users);
       setPurchases(nextPurchases.purchases);
     } catch (err) {
@@ -690,7 +655,6 @@ function AdminDashboard({ onUserChange }) {
   const tabs = [
     { id: "actions", label: "Команды", icon: Terminal, count: actions.length },
     { id: "vouchers", label: "Ваучеры", icon: Ticket, count: vouchers.length },
-    { id: "discounts", label: "Скидки", icon: Percent, count: discounts.length },
     { id: "users", label: "Пользователи", icon: Users, count: users.length },
     { id: "donations", label: "Донаты", icon: Zap, count: purchases.length }
   ];
@@ -741,7 +705,6 @@ function AdminDashboard({ onUserChange }) {
 
       {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} />}
       {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
-      {tab === "discounts" && <AdminDiscounts actions={actions} discounts={discounts} refresh={refresh} setMessage={setMessage} />}
       {tab === "users" && <AdminUsers users={users} />}
       {tab === "donations" && <AdminDonations purchases={purchases} />}
     </main>
@@ -1040,7 +1003,6 @@ function AdminActions({ actions, refresh, setMessage }) {
                   <span>
                     {money(action.price)} coins · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
                     {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
-                    {action.discount ? ` · скидка ${action.discount.percent}% · ${discountTimeLabel(action.discount)}` : ""}
                   </span>
                   <code>{(action.commands || [action.command]).join(" | ")}</code>
                 </div>
@@ -1373,111 +1335,6 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
                   disabled={busyId === voucher.id}
                   title="Удалить ваучер"
                 >
-                  <Trash2 size={17} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </section>
-  );
-}
-
-function AdminDiscounts({ actions, discounts, refresh, setMessage }) {
-  const [form, setForm] = useState({ actionId: "", percent: 20, expiresAt: "" });
-  const [saving, setSaving] = useState(false);
-  const [busyId, setBusyId] = useState("");
-
-  async function submit(event) {
-    event.preventDefault();
-    setSaving(true);
-    setMessage("");
-    try {
-      await api.createDiscount({
-        actionId: form.actionId,
-        percent: Number(form.percent),
-        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null
-      });
-      setForm({ actionId: "", percent: 20, expiresAt: "" });
-      setMessage("Скидка создана");
-      await refresh({ silent: true });
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function remove(discount) {
-    setBusyId(discount.id);
-    setMessage("");
-    try {
-      await api.deleteDiscount(discount.id);
-      setMessage("Скидка удалена");
-      await refresh({ silent: true });
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setBusyId("");
-    }
-  }
-
-  return (
-    <section className="grid admin-grid">
-      <form className="panel form-panel" onSubmit={submit}>
-        <div className="panel-title">
-          <Percent size={19} />
-          <h2>Новая скидка</h2>
-        </div>
-        <label className="field">
-          <span>Команда</span>
-          <select required value={form.actionId} onChange={(e) => setForm({ ...form, actionId: e.target.value })}>
-            <option value="">Выбери команду</option>
-            {actions.map((action) => (
-              <option key={action.id} value={action.id}>
-                {action.title} · {money(action.originalPrice || action.price)} coins
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Скидка, %</span>
-          <input required type="number" min="1" max="95" value={form.percent} onChange={(e) => setForm({ ...form, percent: e.target.value })} />
-        </label>
-        <label className="field">
-          <span>До даты</span>
-          <input type="datetime-local" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
-        </label>
-        <ShinyButton className="primary-action compact" disabled={saving || actions.length === 0}>
-          <Plus size={17} />
-          {saving ? "Создаем" : "Создать"}
-        </ShinyButton>
-      </form>
-
-      <section className="panel">
-        <div className="panel-title">
-          <Percent size={19} />
-          <h2>Скидки</h2>
-        </div>
-        <div className="table-list">
-          {discounts.length === 0 && <EmptyState icon={Percent} title="Скидок нет" text="Создай скидку на команду навсегда или до времени." />}
-          {discounts.map((discount) => (
-            <div className="admin-row discount-admin-row" key={discount.id}>
-              <div>
-                <div className="row-title">
-                  <strong>{discount.actionTitle || "Команда"}</strong>
-                  <span className="state-badge good">-{discount.percent}%</span>
-                  <span className={`state-badge ${discount.isActive ? "on" : "off"}`}>
-                    {discount.isActive ? "активна" : "выключена"}
-                  </span>
-                </div>
-                <span>
-                  {money(discount.originalPrice)} coins &rarr; {money(discount.discountedPrice)} coins · {discountTimeLabel(discount)}
-                </span>
-              </div>
-              <div className="row-actions">
-                <button className="icon-button danger" type="button" onClick={() => remove(discount)} disabled={busyId === discount.id} title="Удалить скидку">
                   <Trash2 size={17} />
                 </button>
               </div>
