@@ -922,6 +922,11 @@ code {
   transition: transform 0.28s ease, filter 0.28s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
+.action-card.has-image {
+  background-position: 42% center;
+  background-size: 118% 118%;
+}
+
 .action-card:hover {
   border-color: rgba(247, 251, 243, 0.95);
   filter: saturate(1.08);
@@ -933,15 +938,15 @@ code {
   z-index: 0;
   content: "";
   background:
-    linear-gradient(180deg, rgba(7, 8, 7, 0.28), rgba(7, 8, 7, 0.82)),
-    linear-gradient(90deg, rgba(7, 8, 7, 0.76), rgba(7, 8, 7, 0.18));
+    linear-gradient(180deg, rgba(7, 8, 7, 0.21), rgba(7, 8, 7, 0.62)),
+    linear-gradient(90deg, rgba(7, 8, 7, 0.57), rgba(7, 8, 7, 0.14));
   pointer-events: none;
 }
 
 .action-card.has-image::after {
   background:
-    linear-gradient(180deg, rgba(7, 8, 7, 0.38), rgba(7, 8, 7, 0.88)),
-    linear-gradient(90deg, rgba(7, 8, 7, 0.8), rgba(7, 8, 7, 0.18));
+    linear-gradient(180deg, rgba(7, 8, 7, 0.29), rgba(7, 8, 7, 0.66)),
+    linear-gradient(90deg, rgba(7, 8, 7, 0.6), rgba(7, 8, 7, 0.14));
 }
 
 .action-card > * {
@@ -1030,26 +1035,26 @@ code {
   position: relative;
   display: grid;
   flex: 0 0 auto;
-  min-width: 72px;
-  min-height: 38px;
+  min-width: 74px;
+  min-height: 40px;
   align-content: center;
   justify-items: end;
   gap: 2px;
-  padding: 5px 10px 6px 12px;
-  border: 1px solid rgba(183, 255, 201, 0.22);
-  border-left: 3px solid rgba(183, 255, 201, 0.88);
+  padding: 6px 10px 6px 12px;
+  border: 2px solid rgba(231, 244, 228, 0.72);
   background:
-    linear-gradient(135deg, rgba(183, 255, 201, 0.13), rgba(7, 8, 7, 0.68)),
-    rgba(7, 8, 7, 0.42);
+    repeating-linear-gradient(45deg, rgba(231, 244, 228, 0.055) 0 2px, transparent 2px 8px),
+    rgba(7, 8, 7, 0.72);
   color: var(--accent-strong);
+  font-family: var(--minecraft-font);
   font-weight: 950;
   line-height: 1;
   text-align: right;
   white-space: nowrap;
   box-shadow:
-    inset 0 1px 0 rgba(247, 251, 243, 0.14),
-    0 8px 24px rgba(0, 0, 0, 0.22);
-  text-shadow: 0 0 13px rgba(124, 255, 155, 0.3);
+    4px 4px 0 rgba(231, 244, 228, 0.25),
+    inset 0 0 0 2px rgba(124, 255, 155, 0.08);
+  text-shadow: 0 0 12px rgba(124, 255, 155, 0.24);
 }
 
 .price-current {
@@ -1061,12 +1066,12 @@ code {
 
 .price-current svg {
   flex: 0 0 auto;
-  filter: drop-shadow(0 0 8px currentColor);
-  opacity: 0.9;
+  filter: drop-shadow(0 0 5px rgba(124, 255, 155, 0.26));
+  opacity: 0.82;
 }
 
 .price-inline strong {
-  font-size: 19px;
+  font-size: 18px;
 }
 
 .action-footer {
