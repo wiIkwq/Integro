@@ -1,6 +1,7 @@
 @font-face {
   font-family: "Minecraft Rus";
   src:
+    url("/fonts/minecraft.ttf") format("truetype"),
     local("Minecraft Rus"),
     local("MinecraftRus"),
     local("Minecraft Cyrillic"),
@@ -908,7 +909,7 @@ code {
 .action-card {
   position: relative;
   display: grid;
-  min-height: 236px;
+  min-height: 208px;
   align-content: stretch;
   overflow: hidden;
   background:
@@ -951,7 +952,7 @@ code {
 .action-bg-icon {
   position: absolute;
   right: 12px;
-  bottom: 68px;
+  bottom: 58px;
   z-index: 0;
   color: rgba(183, 255, 201, 0.11);
 }
@@ -960,14 +961,13 @@ code {
   display: grid;
   min-height: 100%;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 48px 12px 12px;
+  gap: 10px;
+  padding: 44px 12px 11px;
 }
 
 .action-copy {
   display: grid;
   align-self: center;
-  gap: 8px;
   min-width: 0;
   max-width: 92%;
 }
@@ -978,9 +978,9 @@ code {
   overflow-wrap: anywhere;
   color: var(--ink);
   font-family: var(--minecraft-font);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 800;
-  line-height: 1.18;
+  line-height: 1.16;
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
 }
 
@@ -1036,68 +1036,43 @@ code {
   white-space: normal;
 }
 
-.price-electric {
+.price-inline {
+  display: inline-flex;
   flex: 0 0 auto;
-  min-width: 68px;
-}
-
-.price-card {
-  display: grid;
-  min-width: 68px;
-  min-height: 38px;
-  align-content: center;
-  gap: 1px;
-  padding: 4px 8px;
-  border: 2px solid rgba(231, 244, 228, 0.58);
-  background:
-    linear-gradient(135deg, rgba(124, 255, 155, 0.12), rgba(7, 8, 7, 0.94)),
-    var(--bg);
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 2px;
   color: var(--accent-strong);
+  font-weight: 950;
+  line-height: 1;
   text-align: right;
+  white-space: nowrap;
+  text-shadow: 0 0 14px rgba(124, 255, 155, 0.22);
 }
 
-.price-electric.discounted .price-card {
-  border-color: rgba(255, 207, 107, 0.72);
-  background:
-    linear-gradient(135deg, rgba(255, 207, 107, 0.18), rgba(7, 8, 7, 0.94)),
-    var(--bg);
+.price-inline.discounted {
   color: var(--amber);
+  text-shadow: 0 0 15px rgba(255, 207, 107, 0.26);
 }
 
-.price-card strong {
-  font-size: 17px;
-  line-height: 1;
+.price-inline strong {
+  font-size: 18px;
 }
 
-.old-price-row {
-  display: block;
-  color: var(--muted);
-  line-height: 1;
-}
-
-.old-price-row del {
-  font-size: 10px;
+.price-inline del {
+  color: rgba(247, 251, 243, 0.62);
+  font-size: 11px;
   font-weight: 850;
-}
-
-.action-copy p {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: rgba(247, 251, 243, 0.8);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  font-size: 13px;
-  line-height: 1.45;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
 .action-footer {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-top: 8px;
+  padding-top: 7px;
   border-top: 1px solid rgba(231, 244, 228, 0.18);
 }
 
@@ -1128,10 +1103,18 @@ code {
   min-width: 0;
   flex: 0 1 auto;
   margin: 0;
-  min-height: 38px;
+  min-height: 36px;
   padding-inline: 10px;
-  font-size: 13px;
+  font-size: 12px;
   white-space: normal;
+}
+
+.action-admin-row .row-title strong,
+.discount-admin-row .row-title strong,
+.donation-admin-row > div > strong {
+  font-family: var(--minecraft-font);
+  font-size: 15px;
+  letter-spacing: 0;
 }
 
 .notice {

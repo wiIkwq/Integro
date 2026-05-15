@@ -36,13 +36,12 @@ import {
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, ElectricBorder, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
+import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
 
 function emptyActionForm() {
   return {
     title: "",
-    description: "",
     price: 100,
     commands: ["say {user} активировал интерактив"],
     commandMode: "sequence",
@@ -546,28 +545,13 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
       <div className="action-body">
         <div className="action-copy">
           <h3>{action.title}</h3>
-          {action.description && <p>{action.description}</p>}
         </div>
         <div className="action-footer">
           <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
             <Zap size={17} />
             {buttonText}
           </ShinyButton>
-          {hasDiscount ? (
-            <ElectricBorder
-              className="price-electric discounted"
-              color="#ffcf6b"
-              speed={1.7}
-              chaos={0.04}
-              borderRadius={0}
-            >
-              <PriceContent action={action} hasDiscount={hasDiscount} />
-            </ElectricBorder>
-          ) : (
-            <div className="price-electric">
-              <PriceContent action={action} hasDiscount={hasDiscount} />
-            </div>
-          )}
+          <PriceContent action={action} hasDiscount={hasDiscount} />
         </div>
       </div>
     </SpotlightCard>
@@ -576,12 +560,8 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
 
 function PriceContent({ action, hasDiscount }) {
   return (
-    <div className="price-card">
-      {hasDiscount && (
-        <div className="old-price-row">
-          <del>{money(action.originalPrice)}</del>
-        </div>
-      )}
+    <div className={`price-inline ${hasDiscount ? "discounted" : ""}`}>
+      {hasDiscount && <del>{money(action.originalPrice)}</del>}
       <strong>{money(action.price)}</strong>
     </div>
   );
@@ -801,7 +781,6 @@ function AdminActions({ actions, refresh, setMessage }) {
     try {
       await api.createAction({
         title: form.title,
-        description: form.description,
         price: Number(form.price),
         commands: form.commands.map((command) => command.trim()).filter(Boolean),
         commandMode: form.commandMode,
@@ -858,10 +837,6 @@ function AdminActions({ actions, refresh, setMessage }) {
         <label className="field">
           <span>Название</span>
           <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-        </label>
-        <label className="field">
-          <span>Описание</span>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </label>
         <label className="field">
           <span>Баннер</span>
@@ -1375,7 +1350,7 @@ function AdminDiscounts({ actions, discounts, refresh, setMessage }) {
         <div className="table-list">
           {discounts.length === 0 && <EmptyState icon={Percent} title="Скидок нет" text="Создай скидку на команду навсегда или до времени." />}
           {discounts.map((discount) => (
-            <div className="admin-row" key={discount.id}>
+            <div className="admin-row discount-admin-row" key={discount.id}>
               <div>
                 <div className="row-title">
                   <strong>{discount.actionTitle || "Команда"}</strong>
@@ -1482,7 +1457,7 @@ function AdminDonations({ purchases }) {
       <div className="table-list">
         {purchases.length === 0 && <EmptyState icon={Zap} title="Донатов пока нет" text="Новые покупки команд появятся здесь." />}
         {purchases.map((purchase) => (
-          <div className="admin-row" key={purchase.id}>
+          <div className="admin-row donation-admin-row" key={purchase.id}>
             <div>
               <strong>{purchase.title}</strong>
               <span>
