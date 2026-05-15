@@ -901,55 +901,77 @@ code {
 }
 
 .action-card {
-  display: grid;
-  overflow: hidden;
-}
-
-.action-banner {
   position: relative;
   display: grid;
-  min-height: 132px;
-  place-items: center;
+  min-height: 322px;
+  align-content: stretch;
+  overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(124, 255, 155, 0.2), rgba(255, 207, 107, 0.12)),
-    repeating-linear-gradient(45deg, rgba(231, 244, 228, 0.08) 0 2px, transparent 2px 13px);
+    radial-gradient(circle at 18% 10%, rgba(124, 255, 155, 0.22), transparent 32%),
+    radial-gradient(circle at 86% 86%, rgba(255, 207, 107, 0.16), transparent 30%),
+    repeating-linear-gradient(45deg, rgba(231, 244, 228, 0.08) 0 2px, transparent 2px 13px),
+    var(--panel);
   background-position: center;
   background-size: cover;
-  color: var(--accent-strong);
-  transition: transform 0.28s ease, filter 0.28s ease;
+  transition: transform 0.28s ease, filter 0.28s ease, box-shadow 0.2s ease;
 }
 
-.action-card:hover .action-banner {
-  transform: scale(1.015);
+.action-card:hover {
   filter: saturate(1.08);
 }
 
-.action-banner.has-image::after {
+.action-card::after {
   position: absolute;
   inset: 0;
+  z-index: 0;
   content: "";
-  background: linear-gradient(180deg, transparent, rgba(8, 11, 9, 0.42));
+  background:
+    linear-gradient(180deg, rgba(7, 8, 7, 0.34), rgba(7, 8, 7, 0.82)),
+    linear-gradient(90deg, rgba(7, 8, 7, 0.72), rgba(7, 8, 7, 0.2));
+  pointer-events: none;
+}
+
+.action-card.has-image::after {
+  background:
+    linear-gradient(180deg, rgba(7, 8, 7, 0.48), rgba(7, 8, 7, 0.86)),
+    linear-gradient(90deg, rgba(7, 8, 7, 0.78), rgba(7, 8, 7, 0.24));
+}
+
+.action-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.action-bg-icon {
+  position: absolute;
+  right: 16px;
+  bottom: 72px;
+  z-index: 0;
+  color: rgba(183, 255, 201, 0.18);
 }
 
 .action-body {
   display: grid;
+  min-height: 100%;
+  align-content: space-between;
+  gap: 18px;
+  padding: 58px 14px 14px;
+}
+
+.action-copy {
+  display: grid;
   gap: 10px;
-  padding: 14px;
+  min-width: 0;
 }
 
-.action-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.action-top h3 {
+.action-copy h3 {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 20px;
-  line-height: 1.18;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.08;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
 }
 
 .effect-mark,
@@ -968,7 +990,7 @@ code {
 
 .effect-mark {
   top: 10px;
-  left: 10px;
+  right: 10px;
   width: 34px;
   height: 34px;
 }
@@ -982,8 +1004,8 @@ code {
 }
 
 .discount-corner {
-  right: 10px;
-  bottom: 10px;
+  top: 10px;
+  left: 10px;
   min-height: 30px;
   padding: 0 9px;
   color: var(--amber);
@@ -1005,15 +1027,15 @@ code {
 }
 
 .price-electric {
-  flex: 0 0 auto;
+  flex: 0 1 126px;
   min-width: 102px;
 }
 
 .price-card {
   display: grid;
-  min-width: 102px;
+  min-width: 108px;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border: 2px solid rgba(231, 244, 228, 0.58);
   background:
     linear-gradient(135deg, rgba(124, 255, 155, 0.12), rgba(7, 8, 7, 0.94)),
@@ -1031,7 +1053,7 @@ code {
 }
 
 .price-card strong {
-  font-size: 22px;
+  font-size: 21px;
   line-height: 1;
 }
 
@@ -1043,10 +1065,7 @@ code {
 }
 
 .old-price-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  display: block;
   color: var(--muted);
 }
 
@@ -1055,18 +1074,17 @@ code {
   font-weight: 850;
 }
 
-.old-price-row b {
-  padding: 1px 5px;
-  background: var(--amber);
-  color: #070807;
-  font-size: 11px;
-  font-weight: 950;
+.action-copy p {
+  margin: 0;
+  color: rgba(247, 251, 243, 0.8);
+  line-height: 1.45;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
-.action-body p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.45;
+.action-footer {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .action-meta {
@@ -1092,8 +1110,11 @@ code {
 }
 
 .action-run {
-  width: calc(100% - 28px);
-  margin: 0 14px 14px;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  white-space: normal;
 }
 
 .notice {

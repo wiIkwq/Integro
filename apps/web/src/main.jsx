@@ -530,24 +530,25 @@ function UserDashboard({ user, onUserChange }) {
 }
 
 function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
-  const bannerStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
+  const cardStyle = action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined;
   const hasDiscount = Boolean(action.discount);
   const sentimentIcon = action.sentiment === "bad" ? ThumbsDown : ThumbsUp;
   const SentimentIcon = sentimentIcon;
   const sentimentLabel = action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект";
 
   return (
-    <SpotlightCard className="action-card" delay={index * 35}>
-      <div className={`action-banner ${action.bannerUrl ? "has-image" : ""}`} style={bannerStyle}>
-        <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
-          <SentimentIcon size={16} />
-        </span>
-        {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
-        {!action.bannerUrl && <Gamepad2 size={32} />}
-      </div>
+    <SpotlightCard className={`action-card ${action.bannerUrl ? "has-image" : ""}`} delay={index * 35} style={cardStyle}>
+      {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
+      <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
+        <SentimentIcon size={16} />
+      </span>
+      {!action.bannerUrl && <Gamepad2 className="action-bg-icon" size={72} />}
       <div className="action-body">
-        <div className="action-top">
+        <div className="action-copy">
           <h3>{action.title}</h3>
+          {action.description && <p>{action.description}</p>}
+        </div>
+        <div className="action-footer">
           <ElectricBorder
             className={`price-electric ${hasDiscount ? "discounted" : ""}`}
             color={hasDiscount ? "#ffcf6b" : "#7cff9b"}
@@ -559,20 +560,18 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
               {hasDiscount && (
                 <div className="old-price-row">
                   <del>{money(action.originalPrice)}</del>
-                  <b>-{action.discount.percent}%</b>
                 </div>
               )}
               <strong>{money(action.price)}</strong>
               <span>coins</span>
             </div>
           </ElectricBorder>
+          <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
+            <Zap size={17} />
+            {buttonText}
+          </ShinyButton>
         </div>
-        {action.description && <p>{action.description}</p>}
       </div>
-      <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
-        <Zap size={17} />
-        {buttonText}
-      </ShinyButton>
     </SpotlightCard>
   );
 }
