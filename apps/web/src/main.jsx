@@ -36,7 +36,7 @@ import {
   Zap
 } from "lucide-react";
 import { api } from "./api";
-import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
+import { AnimatedPanel, ElectricBorder, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
 
 function emptyActionForm() {
@@ -559,9 +559,28 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
 }
 
 function PriceContent({ action, hasDiscount }) {
+  if (hasDiscount) {
+    return (
+      <ElectricBorder
+        className="discount-price-border"
+        color="#ffcf6b"
+        speed={0.45}
+        chaos={0.015}
+        borderRadius={0}
+      >
+        <div className="price-inline discounted">
+          <del>{money(action.originalPrice)}</del>
+          <span className="price-current">
+            <Coins size={14} strokeWidth={2.8} />
+            <strong>{money(action.price)}</strong>
+          </span>
+        </div>
+      </ElectricBorder>
+    );
+  }
+
   return (
-    <div className={`price-inline ${hasDiscount ? "discounted" : ""}`}>
-      {hasDiscount && <del>{money(action.originalPrice)}</del>}
+    <div className="price-inline">
       <span className="price-current">
         <Coins size={14} strokeWidth={2.8} />
         <strong>{money(action.price)}</strong>
