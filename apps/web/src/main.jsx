@@ -537,12 +537,17 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
   const sentimentLabel = action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект";
 
   return (
-    <SpotlightCard className={`action-card ${action.bannerUrl ? "has-image" : ""}`} delay={index * 35} style={cardStyle}>
+    <SpotlightCard className={`action-card ${action.bannerUrl ? "has-image" : ""} ${hasDiscount ? "has-discount" : ""}`} delay={index * 35} style={cardStyle}>
       {hasDiscount && <span className="discount-corner">-{action.discount.percent}%</span>}
       <span className={`effect-mark ${action.sentiment === "bad" ? "bad" : "good"}`} title={sentimentLabel}>
         <SentimentIcon size={16} />
       </span>
       {!action.bannerUrl && <Gamepad2 className="action-bg-icon" size={72} />}
+      <div className="action-vibe" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <div className="action-body">
         <div className="action-copy">
           <h3>{action.title}</h3>
