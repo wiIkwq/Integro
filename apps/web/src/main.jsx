@@ -562,7 +562,10 @@ function PriceContent({ action, hasDiscount }) {
   return (
     <div className={`price-inline ${hasDiscount ? "discounted" : ""}`}>
       {hasDiscount && <del>{money(action.originalPrice)}</del>}
-      <strong>{money(action.price)}</strong>
+      <span className="price-current">
+        <Coins size={14} strokeWidth={2.8} />
+        <strong>{money(action.price)}</strong>
+      </span>
     </div>
   );
 }

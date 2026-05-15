@@ -1037,33 +1037,61 @@ code {
 }
 
 .price-inline {
-  display: inline-flex;
+  position: relative;
+  display: grid;
   flex: 0 0 auto;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 7px;
-  min-height: 36px;
-  padding: 0 2px;
+  min-width: 74px;
+  min-height: 38px;
+  align-content: center;
+  justify-items: end;
+  gap: 2px;
+  padding: 5px 9px 6px 12px;
+  border: 1px solid rgba(183, 255, 201, 0.22);
+  border-left: 3px solid rgba(183, 255, 201, 0.88);
+  background:
+    linear-gradient(135deg, rgba(183, 255, 201, 0.13), rgba(7, 8, 7, 0.68)),
+    rgba(7, 8, 7, 0.42);
   color: var(--accent-strong);
   font-weight: 950;
   line-height: 1;
   text-align: right;
   white-space: nowrap;
-  text-shadow: 0 0 14px rgba(124, 255, 155, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(247, 251, 243, 0.14),
+    0 8px 24px rgba(0, 0, 0, 0.22);
+  text-shadow: 0 0 13px rgba(124, 255, 155, 0.3);
 }
 
 .price-inline.discounted {
+  border-color: rgba(255, 207, 107, 0.28);
+  border-left-color: rgba(255, 207, 107, 0.94);
+  background:
+    linear-gradient(135deg, rgba(255, 207, 107, 0.18), rgba(7, 8, 7, 0.68)),
+    rgba(7, 8, 7, 0.42);
   color: var(--amber);
-  text-shadow: 0 0 15px rgba(255, 207, 107, 0.26);
+  text-shadow: 0 0 14px rgba(255, 207, 107, 0.34);
+}
+
+.price-current {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.price-current svg {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 8px currentColor);
+  opacity: 0.9;
 }
 
 .price-inline strong {
-  font-size: 18px;
+  font-size: 19px;
 }
 
 .price-inline del {
   color: rgba(247, 251, 243, 0.62);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 850;
 }
 
