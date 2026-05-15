@@ -877,21 +877,15 @@ code {
 }
 
 .eb-glow-1 {
-  border: 2px solid color-mix(in srgb, var(--electric-border-color) 64%, transparent);
-  filter: blur(1px);
+  display: none;
 }
 
 .eb-glow-2 {
-  border: 2px solid color-mix(in srgb, var(--electric-border-color) 86%, white 14%);
-  filter: blur(4px);
+  display: none;
 }
 
 .eb-background-glow {
-  z-index: -1;
-  background: linear-gradient(-30deg, var(--electric-border-color), transparent, var(--electric-border-color));
-  filter: blur(26px);
-  opacity: 0.22;
-  transform: scale(1.08);
+  display: none;
 }
 
 .actions-grid {
@@ -1027,15 +1021,17 @@ code {
 }
 
 .price-electric {
-  flex: 0 1 126px;
-  min-width: 102px;
+  flex: 0 0 auto;
+  min-width: 76px;
 }
 
 .price-card {
   display: grid;
-  min-width: 108px;
-  gap: 2px;
-  padding: 7px 10px;
+  min-width: 76px;
+  min-height: 42px;
+  align-content: center;
+  gap: 1px;
+  padding: 5px 9px;
   border: 2px solid rgba(231, 244, 228, 0.58);
   background:
     linear-gradient(135deg, rgba(124, 255, 155, 0.12), rgba(7, 8, 7, 0.94)),
@@ -1053,24 +1049,18 @@ code {
 }
 
 .price-card strong {
-  font-size: 21px;
+  font-size: 20px;
   line-height: 1;
-}
-
-.price-card > span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 950;
-  text-transform: uppercase;
 }
 
 .old-price-row {
   display: block;
   color: var(--muted);
+  line-height: 1;
 }
 
 .old-price-row del {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 850;
 }
 
@@ -1084,6 +1074,7 @@ code {
 .action-footer {
   display: flex;
   align-items: stretch;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -1112,8 +1103,9 @@ code {
 .action-run {
   width: auto;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   margin: 0;
+  padding-inline: 12px;
   white-space: normal;
 }
 

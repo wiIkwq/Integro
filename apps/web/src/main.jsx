@@ -549,30 +549,41 @@ function ActionCard({ action, index = 0, disabled, buttonText, onClick }) {
           {action.description && <p>{action.description}</p>}
         </div>
         <div className="action-footer">
-          <ElectricBorder
-            className={`price-electric ${hasDiscount ? "discounted" : ""}`}
-            color={hasDiscount ? "#ffcf6b" : "#7cff9b"}
-            speed={1.7}
-            chaos={0.04}
-            borderRadius={0}
-          >
-            <div className="price-card">
-              {hasDiscount && (
-                <div className="old-price-row">
-                  <del>{money(action.originalPrice)}</del>
-                </div>
-              )}
-              <strong>{money(action.price)}</strong>
-              <span>coins</span>
-            </div>
-          </ElectricBorder>
           <ShinyButton className="primary-action action-run" disabled={disabled} onClick={onClick} type="button">
             <Zap size={17} />
             {buttonText}
           </ShinyButton>
+          {hasDiscount ? (
+            <ElectricBorder
+              className="price-electric discounted"
+              color="#ffcf6b"
+              speed={1.7}
+              chaos={0.04}
+              borderRadius={0}
+            >
+              <PriceContent action={action} hasDiscount={hasDiscount} />
+            </ElectricBorder>
+          ) : (
+            <div className="price-electric">
+              <PriceContent action={action} hasDiscount={hasDiscount} />
+            </div>
+          )}
         </div>
       </div>
     </SpotlightCard>
+  );
+}
+
+function PriceContent({ action, hasDiscount }) {
+  return (
+    <div className="price-card">
+      {hasDiscount && (
+        <div className="old-price-row">
+          <del>{money(action.originalPrice)}</del>
+        </div>
+      )}
+      <strong>{money(action.price)}</strong>
+    </div>
   );
 }
 
