@@ -614,6 +614,29 @@ app.patch("/admin/actions/:id", requireAdmin, async (c) => {
   }
 });
 
+app.post("/admin/actions/:id/test", requireAdmin, async (c) => {
+  const user = c.get("user");
+  const action = await c.env.DB.prepare(
+    `SELECT *
+     FROM minecraft_actions
+     WHERE id = ? AND deleted_at IS NULL`
+  ).bind(c.req.param("id")).first();
+  if (!action) return fail("Action not found", "not_found", 404);
+
+  const commandSteps = renderCommandSteps(action, user);
+  const response = await bridgeFetch(c.env, "/dispatch-test", {
+    method: "POST",
+    body: JSON.stringify({
+      title: `Тест: ${action.title}`,
+      commands: commandSteps,
+      userName: user.name || "Стример"
+    })
+  }).then((item) => item.json()).catch(() => ({ sent: false }));
+
+  if (!response?.sent) return fail("Bridge is offline", "bridge_offline", 409);
+  return c.json(ok({ sent: true }));
+});
+
 app.delete("/admin/actions/:id", requireAdmin, async (c) => {
   await c.env.DB.prepare(
     "UPDATE minecraft_actions SET is_enabled = 0, deleted_at = ?, updated_at = ? WHERE id = ?"

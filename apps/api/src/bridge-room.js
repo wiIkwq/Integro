@@ -23,6 +23,23 @@ export class BridgeRoom {
       return Response.json({ sent });
     }
 
+    if (url.pathname.endsWith("/dispatch-test")) {
+      const body = await request.json().catch(() => ({}));
+      const sent = await this.sendEvent({
+        type: "execute",
+        id: `test-${crypto.randomUUID()}`,
+        title: String(body.title || "Integro test").slice(0, 120),
+        command: body.commands?.[0]?.command || "",
+        commands: parseCommandSnapshot(JSON.stringify(body.commands || [])),
+        amount: 0,
+        userName: String(body.userName || "Стример"),
+        userEmail: "",
+        createdAt: new Date().toISOString(),
+        test: true
+      });
+      return Response.json({ sent });
+    }
+
     if (url.pathname.endsWith("/flush")) {
       const sent = await this.flushQueued();
       return Response.json({ sent });
@@ -152,10 +169,15 @@ export class BridgeRoom {
       createdAt: row.created_at
     };
 
+    return this.sendEvent(event);
+  }
+
+  async sendEvent(event) {
+    const sockets = this.state.getWebSockets();
+    if (sockets.length === 0) return false;
     for (const socket of sockets) {
       socket.send(JSON.stringify(event));
     }
-
     return true;
   }
 

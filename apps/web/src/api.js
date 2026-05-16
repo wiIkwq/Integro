@@ -62,6 +62,7 @@ export const api = {
     request("/admin/actions", { method: "POST", body: JSON.stringify(body) }),
   updateAction: (id, body) =>
     request(`/admin/actions/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  testAction: (id) => request(`/admin/actions/${id}/test`, { method: "POST" }),
   deleteAction: (id) => request(`/admin/actions/${id}`, { method: "DELETE" }),
   adminVouchers: () => request("/admin/vouchers"),
   createVoucher: (body) =>

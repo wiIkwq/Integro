@@ -13,6 +13,8 @@ import {
   Loader2,
   LogOut,
   Maximize2,
+  Pencil,
+  Play,
   Plus,
   Power,
   RefreshCcw,
@@ -41,6 +43,7 @@ import "./styles.css";
 function emptyActionForm() {
   return {
     title: "",
+    description: "",
     price: 100,
     commands: ["say {user} активировал интерактив"],
     commandMode: "sequence",
@@ -770,12 +773,43 @@ function Metric({ icon: Icon, label, value, tone = "neutral" }) {
 
 function AdminActions({ actions, refresh, setMessage }) {
   const [form, setForm] = useState(emptyActionForm);
+  const [editingId, setEditingId] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [pendingBanner, setPendingBanner] = useState(null);
   const [expandedCommandIndex, setExpandedCommandIndex] = useState(null);
   const commandLines = useMemo(() => form.commands.map((command) => command.trim()).filter(Boolean).length, [form.commands]);
   const randomLimit = Math.max(1, commandLines || 1);
+  const isEditing = Boolean(editingId);
+
+  function actionToForm(action) {
+    return {
+      title: action.title || "",
+      description: action.description || "",
+      price: action.price || 1,
+      commands: action.commands?.length ? [...action.commands] : [action.command || ""],
+      commandMode: action.commandMode || "sequence",
+      sentiment: action.sentiment || "good",
+      stepDelaySeconds: String((Number(action.stepDelayMs) || 0) / 1000),
+      randomCount: action.randomCount || 1,
+      bannerUrl: action.bannerUrl || ""
+    };
+  }
+
+  function startEdit(action) {
+    setEditingId(action.id);
+    setForm(actionToForm(action));
+    setMessage(`Редактируешь: ${action.title}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEdit() {
+    setEditingId("");
+    setForm(emptyActionForm());
+    setPendingBanner(null);
+    setExpandedCommandIndex(null);
+    setMessage("");
+  }
 
   function setCommand(index, value) {
     setForm((current) => ({
@@ -842,8 +876,9 @@ function AdminActions({ actions, refresh, setMessage }) {
     setSaving(true);
     setMessage("");
     try {
-      await api.createAction({
+      const payload = {
         title: form.title,
+        description: form.description,
         price: Number(form.price),
         commands: form.commands.map((command) => command.trim()).filter(Boolean),
         commandMode: form.commandMode,
@@ -851,9 +886,15 @@ function AdminActions({ actions, refresh, setMessage }) {
         randomCount: Number(form.randomCount),
         stepDelayMs: Number(form.stepDelaySeconds) * 1000,
         bannerUrl: form.bannerUrl
-      });
+      };
+      if (isEditing) {
+        await api.updateAction(editingId, payload);
+      } else {
+        await api.createAction(payload);
+      }
       setForm(emptyActionForm());
-      setMessage("Команда создана");
+      setEditingId("");
+      setMessage(isEditing ? "Команда сохранена" : "Команда создана");
       await refresh({ silent: true });
     } catch (err) {
       setMessage(err.message);
@@ -889,17 +930,42 @@ function AdminActions({ actions, refresh, setMessage }) {
     }
   }
 
+  async function testAction(action) {
+    setBusyId(action.id);
+    setMessage("");
+    try {
+      await api.testAction(action.id);
+      setMessage("Тест отправлен в Minecraft");
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
   return (
     <>
     <section className="grid admin-grid">
       <form className="panel form-panel" onSubmit={submit}>
-        <div className="panel-title">
-          <Plus size={19} />
-          <h2>Новая команда</h2>
+        <div className="panel-title panel-title-split">
+          <div>
+            {isEditing ? <Pencil size={19} /> : <Plus size={19} />}
+            <h2>{isEditing ? "Редактирование команды" : "Новая команда"}</h2>
+          </div>
+          {isEditing && (
+            <button className="secondary-action compact" type="button" onClick={cancelEdit}>
+              <X size={15} />
+              Отмена
+            </button>
+          )}
         </div>
         <label className="field">
           <span>Название</span>
           <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Описание для панели</span>
+          <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Можно оставить пустым" />
         </label>
         <label className="field">
           <span>Баннер</span>
@@ -1019,7 +1085,7 @@ function AdminActions({ actions, refresh, setMessage }) {
           <span>{commandCountLabel(commandLines || 0)}</span>
           <ShinyButton className="primary-action compact" disabled={saving}>
             <BadgeCheck size={17} />
-            {saving ? "Создаем" : "Создать"}
+            {saving ? "Сохраняем" : isEditing ? "Сохранить" : "Создать"}
           </ShinyButton>
         </div>
       </form>
@@ -1055,6 +1121,14 @@ function AdminActions({ actions, refresh, setMessage }) {
                 </div>
               </div>
               <div className="row-actions">
+                <button className="secondary-action compact" onClick={() => startEdit(action)} type="button" disabled={busyId === action.id}>
+                  <Pencil size={15} />
+                  Изменить
+                </button>
+                <button className="secondary-action compact" onClick={() => testAction(action)} type="button" disabled={busyId === action.id}>
+                  <Play size={15} />
+                  Тест
+                </button>
                 <button className="secondary-action compact" onClick={() => toggle(action)} type="button" disabled={busyId === action.id}>
                   <Power size={15} />
                   {action.isEnabled ? "Выключить" : "Включить"}
