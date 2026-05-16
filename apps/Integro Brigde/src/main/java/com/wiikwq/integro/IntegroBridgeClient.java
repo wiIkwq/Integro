@@ -23,6 +23,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -41,6 +42,8 @@ public final class IntegroBridgeClient {
     private volatile WebSocket socket;
     private volatile boolean connecting;
     private volatile boolean running;
+    private volatile boolean heartbeatActive;
+    private volatile ScheduledFuture<?> heartbeatTask;
 
     private IntegroBridgeClient() {
     }
@@ -81,6 +84,7 @@ public final class IntegroBridgeClient {
         WebSocket current = socket;
         socket = null;
         connecting = false;
+        stopHeartbeat();
         if (current != null) {
             current.sendClose(WebSocket.NORMAL_CLOSURE, "Stopped");
         }
@@ -171,8 +175,30 @@ public final class IntegroBridgeClient {
                     return;
                 }
                 socket = webSocket;
+                startHeartbeat(webSocket);
                 chat("Bridge online. Команды со стрима будут выполняться в Minecraft.", ChatFormatting.GREEN);
             });
+    }
+
+    private void startHeartbeat(WebSocket webSocket) {
+        stopHeartbeat();
+        heartbeatActive = true;
+        heartbeatTask = executor.scheduleAtFixedRate(() -> {
+            if (!running || socket != webSocket || !heartbeatActive) return;
+            JsonObject ping = new JsonObject();
+            ping.addProperty("type", "ping");
+            ping.addProperty("time", System.currentTimeMillis());
+            webSocket.sendText(gson.toJson(ping), true);
+        }, 0L, 5L, TimeUnit.SECONDS);
+    }
+
+    private void stopHeartbeat() {
+        heartbeatActive = false;
+        ScheduledFuture<?> currentTask = heartbeatTask;
+        heartbeatTask = null;
+        if (currentTask != null) {
+            currentTask.cancel(false);
+        }
     }
 
     private void handleMessage(String raw) {
@@ -373,6 +399,7 @@ public final class IntegroBridgeClient {
             if (socket == webSocket) {
                 socket = null;
             }
+            stopHeartbeat();
             if (running) {
                 chat("Bridge отключился: " + reason, ChatFormatting.YELLOW);
             }
@@ -384,6 +411,7 @@ public final class IntegroBridgeClient {
             if (socket == webSocket) {
                 socket = null;
             }
+            stopHeartbeat();
             chat("Bridge ошибка: " + error.getMessage(), ChatFormatting.RED);
             Integro.LOGGER.warn("WebSocket error", error);
         }

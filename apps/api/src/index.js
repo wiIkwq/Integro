@@ -682,6 +682,9 @@ app.post("/admin/vouchers", requireAdmin, async (c) => {
     ).run();
     return c.json(ok({ voucher: row }), 201);
   } catch (err) {
+    if (String(err.message || "").includes("UNIQUE constraint failed: vouchers.code")) {
+      return fail("Такой код ваучера уже существует. Введи другой код или нажми сгенерировать.", "voucher_code_exists", 409);
+    }
     return fail(err.message, "validation_error", 400);
   }
 });
@@ -985,7 +988,7 @@ app.get("/bridge/device/poll", async (c) => {
 });
 
 app.get("/bridge/connect", async (c) => {
-  return bridgeFetch(c.env, "/connect", { headers: { Authorization: c.req.header("authorization") || "" } });
+  return bridgeFetch(c.env, "/connect", c.req.raw);
 });
 
 app.post("/bridge/flush", requireAdmin, async (c) => {
@@ -1178,7 +1181,11 @@ function sanitizeCommandPart(value) {
 
 function bridgeFetch(env, path, init = {}) {
   const id = env.BRIDGE_ROOM.idFromName("minecraft-primary");
-  return env.BRIDGE_ROOM.get(id).fetch(`https://bridge${path}`, init);
+  const target = `https://bridge${path}`;
+  if (init instanceof Request) {
+    return env.BRIDGE_ROOM.get(id).fetch(new Request(target, init));
+  }
+  return env.BRIDGE_ROOM.get(id).fetch(target, init);
 }
 
 function mapActions(rows, includeCommand = false) {

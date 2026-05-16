@@ -1,5 +1,7 @@
 import { sha256Hex } from "./auth.js";
 
+const HEARTBEAT_TTL_MS = 15000;
+
 export class BridgeRoom {
   constructor(state, env) {
     this.state = state;
@@ -59,6 +61,7 @@ export class BridgeRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
+    await this.markHeartbeat(device);
     server.send(JSON.stringify({
       type: "hello",
       serverTime: new Date().toISOString(),
@@ -98,11 +101,13 @@ export class BridgeRoom {
     }
 
     if (payload.type === "ping") {
+      await this.markHeartbeat();
       webSocket.send(JSON.stringify({ type: "pong", serverTime: new Date().toISOString() }));
       return;
     }
 
     if (payload.type === "result") {
+      await this.markHeartbeat();
       await this.recordResult(payload);
       return;
     }
@@ -111,13 +116,20 @@ export class BridgeRoom {
   }
 
   async status() {
-    const queued = await this.env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM action_purchases WHERE status = 'queued'"
-    ).first();
+    const [queued, heartbeat] = await Promise.all([
+      this.env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM action_purchases WHERE status = 'queued'"
+      ).first(),
+      this.state.storage.get("heartbeat")
+    ]);
+    const lastSeenAt = heartbeat?.lastSeenAt || 0;
+    const alive = Date.now() - lastSeenAt <= HEARTBEAT_TTL_MS;
+    const sockets = this.state.getWebSockets().length;
     return {
-      connected: this.state.getWebSockets().length > 0,
-      sockets: this.state.getWebSockets().length,
-      queued: queued?.count || 0
+      connected: sockets > 0 && alive,
+      sockets,
+      queued: queued?.count || 0,
+      lastSeenAt: lastSeenAt ? new Date(lastSeenAt).toISOString() : null
     };
   }
 
@@ -175,6 +187,8 @@ export class BridgeRoom {
   async sendEvent(event) {
     const sockets = this.state.getWebSockets();
     if (sockets.length === 0) return false;
+    const heartbeat = await this.state.storage.get("heartbeat");
+    if (!heartbeat?.lastSeenAt || Date.now() - heartbeat.lastSeenAt > HEARTBEAT_TTL_MS) return false;
     for (const socket of sockets) {
       socket.send(JSON.stringify(event));
     }
@@ -218,7 +232,15 @@ export class BridgeRoom {
          FROM action_purchases
          WHERE id = ? AND changes() = 1`
       ).bind(refundId, message || "Minecraft command failed", now, purchaseId)
-    ]);
+      ]);
+  }
+
+  async markHeartbeat(device = null) {
+    await this.state.storage.put("heartbeat", {
+      lastSeenAt: Date.now(),
+      deviceId: device?.id || null,
+      userId: device?.user_id || null
+    });
   }
 }
 
