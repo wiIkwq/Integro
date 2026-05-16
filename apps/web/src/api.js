@@ -73,12 +73,18 @@ export const api = {
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
   adminResetData: () => request("/admin/reset", { method: "POST" }),
+  adjustViewerBalance: (id, body) =>
+    request(`/admin/users/${id}/balance`, { method: "POST", body: JSON.stringify(body) }),
   flushBridge: () => request("/bridge/flush", { method: "POST" }),
   developerUsers: () => request("/developer/users"),
+  addStreamer: (body) =>
+    request("/developer/streamers", { method: "POST", body: JSON.stringify(body) }),
   updateUserRole: (id, role) =>
     request(`/developer/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
   adjustUserBalance: (id, body) =>
     request(`/developer/users/${id}/balance`, { method: "POST", body: JSON.stringify(body) }),
   bridgeDevices: () => request("/developer/bridge-devices"),
-  revokeBridgeDevice: (id) => request(`/developer/bridge-devices/${id}`, { method: "DELETE" })
+  revokeBridgeDevice: (id) => request(`/developer/bridge-devices/${id}`, { method: "DELETE" }),
+  developerLogs: (params = {}) => request(`/developer/logs?${new URLSearchParams(params).toString()}`),
+  developerCommandLogs: () => request("/developer/command-logs")
 };

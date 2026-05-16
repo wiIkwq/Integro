@@ -109,19 +109,28 @@ app.get("/auth/google/callback", async (c) => {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const email = normalizeEmail(profile.email);
-  const role = accountRole(c.env, email);
   const name = displayNameForEmail(email, profile.name || email);
+  const existingByEmail = await c.env.DB.prepare("SELECT id, role FROM users WHERE email = ?").bind(email).first();
+  const role = accountRole(c.env, email, existingByEmail?.role);
 
-  await c.env.DB.prepare(
-    `INSERT INTO users (id, google_sub, email, name, avatar_url, role, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(google_sub) DO UPDATE SET
-       email = excluded.email,
-       name = excluded.name,
-       avatar_url = excluded.avatar_url,
-       role = excluded.role,
-       updated_at = excluded.updated_at`
-  ).bind(id, profile.sub, email, name, profile.picture || null, role, now, now).run();
+  if (existingByEmail) {
+    await c.env.DB.prepare(
+      `UPDATE users
+       SET google_sub = ?, name = ?, avatar_url = ?, role = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(profile.sub, name, profile.picture || null, role, now, existingByEmail.id).run();
+  } else {
+    await c.env.DB.prepare(
+      `INSERT INTO users (id, google_sub, email, name, avatar_url, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(google_sub) DO UPDATE SET
+         email = excluded.email,
+         name = excluded.name,
+         avatar_url = excluded.avatar_url,
+         role = excluded.role,
+         updated_at = excluded.updated_at`
+    ).bind(id, profile.sub, email, name, profile.picture || null, role, now, now).run();
+  }
 
   const user = await c.env.DB.prepare("SELECT id FROM users WHERE google_sub = ?").bind(profile.sub).first();
   await createSession(c, user.id);
@@ -793,6 +802,15 @@ app.post("/admin/reset", requireAdmin, async (c) => {
   return c.json(ok());
 });
 
+app.post("/admin/users/:id/balance", requireAdmin, async (c) => {
+  try {
+    const result = await adjustUserBalance(c, c.req.param("id"), "streamer_panel");
+    return c.json(ok(result));
+  } catch (err) {
+    return fail(err.message, "balance_adjust_failed", 400);
+  }
+});
+
 app.get("/developer/users", requireDeveloper, async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT users.id,
@@ -840,32 +858,52 @@ app.patch("/developer/users/:id/role", requireDeveloper, async (c) => {
   await c.env.DB.prepare("UPDATE users SET role = ?, updated_at = ? WHERE id = ?")
     .bind(role, new Date().toISOString(), existing.id)
     .run();
+  await logEvent(c.env, {
+    level: "info",
+    source: "developer.roles",
+    message: `Role changed to ${role}`,
+    userId: actor.id,
+    metadata: { targetUserId: existing.id, role }
+  });
   return c.json(ok());
 });
 
-app.post("/developer/users/:id/balance", requireDeveloper, async (c) => {
+app.post("/developer/streamers", requireDeveloper, async (c) => {
+  const actor = c.get("user");
   const body = await c.req.json().catch(() => ({}));
-  const mode = body.mode === "set" || body.mode === "deduct" ? body.mode : "grant";
-  const amount = requireInt(body.amount, "amount", 0, 1000000000);
-  const note = String(body.reason || "Ручная корректировка").trim().slice(0, 240);
-  const target = await c.env.DB.prepare("SELECT id, balance FROM users WHERE id = ?").bind(c.req.param("id")).first();
-  if (!target) return fail("User not found", "not_found", 404);
-
-  const delta = mode === "set" ? amount - Number(target.balance || 0) : mode === "deduct" ? -amount : amount;
-  const nextBalance = Number(target.balance || 0) + delta;
-  if (nextBalance < 0) return fail("Balance cannot be negative", "negative_balance", 409);
-
+  const email = normalizeEmail(body.email);
+  if (!email || !email.includes("@")) return fail("Email is required", "invalid_email", 400);
+  const name = String(body.name || email.split("@")[0]).trim().slice(0, 80);
+  const existing = await c.env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
   const now = new Date().toISOString();
-  const txId = crypto.randomUUID();
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE users SET balance = ?, updated_at = ? WHERE id = ?").bind(nextBalance, now, target.id),
-    c.env.DB.prepare(
-      `INSERT INTO balance_transactions (id, user_id, type, amount, reference_id, note, created_at)
-       VALUES (?, ?, 'manual_adjustment', ?, ?, ?, ?)`
-    ).bind(txId, target.id, delta, c.get("user").id, note, now)
-  ]);
+  const userId = existing?.id || crypto.randomUUID();
+  if (existing) {
+    await c.env.DB.prepare("UPDATE users SET role = 'streamer', name = COALESCE(NULLIF(name, ''), ?), updated_at = ? WHERE id = ?")
+      .bind(name, now, existing.id)
+      .run();
+  } else {
+    await c.env.DB.prepare(
+      `INSERT INTO users (id, google_sub, email, name, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'streamer', ?, ?)`
+    ).bind(userId, `manual:${crypto.randomUUID()}`, email, name, now, now).run();
+  }
+  await logEvent(c.env, {
+    level: "info",
+    source: "developer.streamers",
+    message: `Streamer added: ${email}`,
+    userId: actor.id,
+    metadata: { targetUserId: userId, email }
+  });
+  return c.json(ok({ userId }));
+});
 
-  return c.json(ok({ balance: nextBalance, delta }));
+app.post("/developer/users/:id/balance", requireDeveloper, async (c) => {
+  try {
+    const result = await adjustUserBalance(c, c.req.param("id"), "developer_panel");
+    return c.json(ok(result));
+  } catch (err) {
+    return fail(err.message, "balance_adjust_failed", 400);
+  }
 });
 
 app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
@@ -874,6 +912,12 @@ app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
             bridge_devices.name,
             bridge_devices.mod_version,
             bridge_devices.minecraft_version,
+            bridge_devices.computer_name,
+            bridge_devices.os_name,
+            bridge_devices.os_version,
+            bridge_devices.java_version,
+            bridge_devices.minecraft_user,
+            bridge_devices.client_locale,
             bridge_devices.created_at,
             bridge_devices.last_seen_at,
             bridge_devices.revoked_at,
@@ -892,7 +936,50 @@ app.delete("/developer/bridge-devices/:id", requireDeveloper, async (c) => {
   await c.env.DB.prepare("UPDATE bridge_devices SET revoked_at = ? WHERE id = ?")
     .bind(new Date().toISOString(), c.req.param("id"))
     .run();
+  await logEvent(c.env, {
+    level: "warn",
+    source: "developer.bridge",
+    message: "Bridge device revoked",
+    userId: c.get("user").id,
+    metadata: { deviceId: c.req.param("id") }
+  });
   return c.json(ok());
+});
+
+app.get("/developer/logs", requireDeveloper, async (c) => {
+  const source = String(c.req.query("source") || "all");
+  const level = String(c.req.query("level") || "all");
+  const clauses = [];
+  const binds = [];
+  if (source !== "all") {
+    clauses.push("source = ?");
+    binds.push(source);
+  }
+  if (level !== "all") {
+    clauses.push("level = ?");
+    binds.push(level);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const statement = c.env.DB.prepare(
+    `SELECT system_logs.*, users.email AS user_email, users.name AS user_name
+     FROM system_logs
+     LEFT JOIN users ON users.id = system_logs.user_id
+     ${where}
+     ORDER BY system_logs.created_at DESC
+     LIMIT 300`
+  );
+  const rows = binds.length ? await statement.bind(...binds).all() : await statement.all();
+  return c.json(ok({ logs: (rows.results || []).map(mapSystemLog) }));
+});
+
+app.get("/developer/command-logs", requireDeveloper, async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT *
+     FROM bridge_command_logs
+     ORDER BY created_at DESC
+     LIMIT 300`
+  ).all();
+  return c.json(ok({ logs: (rows.results || []).map(mapCommandLog) }));
 });
 
 app.post("/bridge/device/start", async (c) => {
@@ -904,12 +991,33 @@ app.post("/bridge/device/start", async (c) => {
   const deviceName = String(body.deviceName || "Minecraft").trim().slice(0, 80);
   const modVersion = String(body.modVersion || "").trim().slice(0, 40);
   const minecraftVersion = String(body.minecraftVersion || "").trim().slice(0, 40);
+  const computerName = String(body.computerName || "").trim().slice(0, 120);
+  const osName = String(body.osName || "").trim().slice(0, 80);
+  const osVersion = String(body.osVersion || "").trim().slice(0, 80);
+  const javaVersion = String(body.javaVersion || "").trim().slice(0, 80);
+  const minecraftUser = String(body.minecraftUser || "").trim().slice(0, 80);
+  const clientLocale = String(body.clientLocale || "").trim().slice(0, 40);
 
   await c.env.DB.prepare(
     `INSERT INTO bridge_device_codes
-     (id, code, device_name, mod_version, minecraft_version, status, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
-  ).bind(id, code, deviceName, modVersion, minecraftVersion, expiresAt, now).run();
+     (id, code, device_name, mod_version, minecraft_version, computer_name, os_name,
+      os_version, java_version, minecraft_user, client_locale, status, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(
+    id,
+    code,
+    deviceName,
+    modVersion,
+    minecraftVersion,
+    computerName,
+    osName,
+    osVersion,
+    javaVersion,
+    minecraftUser,
+    clientLocale,
+    expiresAt,
+    now
+  ).run();
 
   const loginUrl = `${apiOrigin(c)}/bridge/link?code=${encodeURIComponent(code)}`;
   return c.json(ok({ code, loginUrl, expiresAt, pollAfterMs: 2500 }));
@@ -945,9 +1053,25 @@ app.get("/bridge/link", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO bridge_devices
-       (id, user_id, token_hash, name, mod_version, minecraft_version, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(deviceId, user.id, tokenHash, pending.device_name, pending.mod_version, pending.minecraft_version, now, now),
+       (id, user_id, token_hash, name, mod_version, minecraft_version, computer_name, os_name,
+        os_version, java_version, minecraft_user, client_locale, created_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      deviceId,
+      user.id,
+      tokenHash,
+      pending.device_name,
+      pending.mod_version,
+      pending.minecraft_version,
+      pending.computer_name,
+      pending.os_name,
+      pending.os_version,
+      pending.java_version,
+      pending.minecraft_user,
+      pending.client_locale,
+      now,
+      now
+    ),
     c.env.DB.prepare(
       `UPDATE bridge_device_codes
        SET status = 'approved', approved_user_id = ?, approved_device_id = ?, device_token = ?, approved_at = ?
@@ -1006,10 +1130,11 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-function accountRole(env, email) {
+function accountRole(env, email, existingRole = "") {
   const normalized = normalizeEmail(email);
   if (normalized === "bogdan3000tm@gmail.com") return "tester";
   if (normalized === "ihnatenko.bogdan@gmail.com") return "developer";
+  if (["streamer", "developer", "tester"].includes(existingRole)) return existingRole;
   return isAdminEmail(env, normalized) ? "streamer" : "user";
 }
 
@@ -1105,6 +1230,37 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, Math.trunc(number)));
 }
 
+async function adjustUserBalance(c, targetUserId, source) {
+  const body = await c.req.json().catch(() => ({}));
+  const mode = body.mode === "set" || body.mode === "deduct" ? body.mode : "grant";
+  const amount = requireInt(body.amount, "amount", 0, 1000000000);
+  const note = String(body.reason || "Ручная корректировка").trim().slice(0, 240);
+  const target = await c.env.DB.prepare("SELECT id, balance FROM users WHERE id = ?").bind(targetUserId).first();
+  if (!target) throw new Error("User not found");
+
+  const delta = mode === "set" ? amount - Number(target.balance || 0) : mode === "deduct" ? -amount : amount;
+  const nextBalance = Number(target.balance || 0) + delta;
+  if (nextBalance < 0) throw new Error("Balance cannot be negative");
+
+  const now = new Date().toISOString();
+  const txId = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE users SET balance = ?, updated_at = ? WHERE id = ?").bind(nextBalance, now, target.id),
+    c.env.DB.prepare(
+      `INSERT INTO balance_transactions (id, user_id, type, amount, reference_id, note, created_at)
+       VALUES (?, ?, 'manual_adjustment', ?, ?, ?, ?)`
+    ).bind(txId, target.id, delta, c.get("user").id, note, now)
+  ]);
+  await logEvent(c.env, {
+    level: "info",
+    source,
+    message: `Balance adjusted by ${delta}`,
+    userId: c.get("user").id,
+    metadata: { targetUserId, mode, amount, delta, nextBalance, note }
+  });
+  return { balance: nextBalance, delta };
+}
+
 function normalizeRole(value) {
   const role = String(value || "").trim().toLowerCase();
   return ["user", "tester", "streamer", "developer"].includes(role) ? role : "";
@@ -1124,6 +1280,61 @@ function mapDeveloperUser(row) {
     totalSpent: row.total_spent,
     purchasesCount: row.purchases_count
   };
+}
+
+function mapSystemLog(row) {
+  return {
+    id: row.id,
+    level: row.level,
+    source: row.source,
+    message: row.message,
+    metadata: parseJson(row.metadata, {}),
+    userName: row.user_name,
+    userEmail: row.user_email,
+    createdAt: row.created_at
+  };
+}
+
+function mapCommandLog(row) {
+  return {
+    id: row.id,
+    source: row.source,
+    purchaseId: row.purchase_id,
+    actionTitle: row.action_title,
+    userName: row.user_name,
+    status: row.status,
+    message: row.message,
+    commands: parseJson(row.command_snapshot, []),
+    createdAt: row.created_at,
+    completedAt: row.completed_at
+  };
+}
+
+function parseJson(value, fallback) {
+  try {
+    return JSON.parse(value || "null") ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function logEvent(env, { level = "info", source, message, userId = null, metadata = {} }) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO system_logs (id, level, source, message, user_id, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      level,
+      source,
+      String(message || "").slice(0, 500),
+      userId,
+      JSON.stringify(metadata || {}),
+      new Date().toISOString()
+    ).run();
+  } catch {
+    // Logging must never break the main request.
+  }
 }
 
 function deviceCode() {

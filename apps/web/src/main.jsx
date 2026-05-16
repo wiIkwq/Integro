@@ -754,7 +754,7 @@ function AdminDashboard({ user, onUserChange }) {
 
       {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} />}
       {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
-      {tab === "users" && <AdminUsers users={users} />}
+      {tab === "users" && <AdminUsers users={users} refresh={refresh} setMessage={setMessage} />}
       {tab === "donations" && <AdminDonations purchases={purchases} />}
       {tab === "developer" && isDeveloper && <DeveloperPanel setMessage={setMessage} />}
     </main>
@@ -1485,9 +1485,11 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
   );
 }
 
-function AdminUsers({ users }) {
+function AdminUsers({ users, refresh, setMessage }) {
   const [query, setQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
+  const [coinForm, setCoinForm] = useState({ amount: "", reason: "" });
+  const [busy, setBusy] = useState(false);
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return users;
@@ -1525,12 +1527,42 @@ function AdminUsers({ users }) {
             </button>
         ))}
       </div>
-      {selectedUser && <UserDetailsModal user={selectedUser} onClose={() => setSelectedUser(null)} />}
+      {selectedUser && (
+        <UserDetailsModal
+          user={selectedUser}
+          coinForm={coinForm}
+          setCoinForm={setCoinForm}
+          busy={busy}
+          onGrant={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            try {
+              const result = await api.adjustViewerBalance(selectedUser.id, {
+                mode: "grant",
+                amount: Number(coinForm.amount || 0),
+                reason: coinForm.reason || "Выдача стримером"
+              });
+              setMessage(`Выдано: +${coinAmount(result.delta)}`);
+              setCoinForm({ amount: "", reason: "" });
+              await refresh({ silent: true });
+              setSelectedUser((current) => current ? { ...current, balance: result.balance, totalReceived: Number(current.totalReceived || 0) + Number(result.delta || 0) } : current);
+            } catch (err) {
+              setMessage(err.message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          onClose={() => {
+            setSelectedUser(null);
+            setCoinForm({ amount: "", reason: "" });
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function UserDetailsModal({ user, onClose }) {
+function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onGrant, busy }) {
   return (
     <ModalFrame onClose={onClose} label="Профиль пользователя">
         <button className="icon-button modal-close" type="button" onClick={onClose} title="Закрыть">
@@ -1552,6 +1584,33 @@ function UserDetailsModal({ user, onClose }) {
           <StatMini label="Потратил" value={coinAmount(user.totalSpent)} />
           <StatMini label="Донатов" value={user.purchasesCount || 0} />
         </div>
+        {!canOpenStreamerPanel(user) && (
+          <form className="modal-balance-form" onSubmit={onGrant}>
+            <label className="field">
+              <span>Выдать монеты</span>
+              <input
+                required
+                type="number"
+                min="1"
+                value={coinForm.amount}
+                onChange={(event) => setCoinForm({ ...coinForm, amount: event.target.value })}
+                placeholder="Сколько"
+              />
+            </label>
+            <label className="field">
+              <span>Причина</span>
+              <input
+                value={coinForm.reason}
+                onChange={(event) => setCoinForm({ ...coinForm, reason: event.target.value })}
+                placeholder="Бонус, компенсация, тест"
+              />
+            </label>
+            <ShinyButton className="primary-action compact" disabled={busy || !coinForm.amount}>
+              <Coins size={16} />
+              Выдать
+            </ShinyButton>
+          </form>
+        )}
     </ModalFrame>
   );
 }
@@ -1585,7 +1644,12 @@ function AdminDonations({ purchases }) {
 function DeveloperPanel({ setMessage }) {
   const [users, setUsers] = useState([]);
   const [devices, setDevices] = useState([]);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [commandLogs, setCommandLogs] = useState([]);
   const [query, setQuery] = useState("");
+  const [streamerForm, setStreamerForm] = useState({ email: "", name: "" });
+  const [logFilters, setLogFilters] = useState({ source: "all", level: "all" });
+  const [expandedDevice, setExpandedDevice] = useState("");
   const [busy, setBusy] = useState("");
   const [balanceForms, setBalanceForms] = useState({});
 
@@ -1596,14 +1660,36 @@ function DeveloperPanel({ setMessage }) {
   }, [query, users]);
 
   async function refresh() {
-    const [nextUsers, nextDevices] = await Promise.all([api.developerUsers(), api.bridgeDevices()]);
+    const [nextUsers, nextDevices, nextSystemLogs, nextCommandLogs] = await Promise.all([
+      api.developerUsers(),
+      api.bridgeDevices(),
+      api.developerLogs(logFilters),
+      api.developerCommandLogs()
+    ]);
     setUsers(nextUsers.users);
     setDevices(nextDevices.devices);
+    setSystemLogs(nextSystemLogs.logs);
+    setCommandLogs(nextCommandLogs.logs);
   }
 
   useEffect(() => {
     refresh().catch((err) => setMessage(err.message));
-  }, []);
+  }, [logFilters.source, logFilters.level]);
+
+  async function addStreamer(event) {
+    event.preventDefault();
+    setBusy("add-streamer");
+    try {
+      await api.addStreamer(streamerForm);
+      setMessage("Стример добавлен");
+      setStreamerForm({ email: "", name: "" });
+      await refresh();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function updateRole(user, role) {
     setBusy(`role:${user.id}`);
@@ -1660,6 +1746,37 @@ function DeveloperPanel({ setMessage }) {
 
   return (
     <section className="grid admin-grid developer-grid">
+      <section className="panel">
+        <div className="panel-title">
+          <Plus size={19} />
+          <h2>Добавить стримера</h2>
+        </div>
+        <form className="developer-add-form" onSubmit={addStreamer}>
+          <label className="field">
+            <span>Email Google</span>
+            <input
+              required
+              type="email"
+              value={streamerForm.email}
+              onChange={(event) => setStreamerForm({ ...streamerForm, email: event.target.value })}
+              placeholder="streamer@gmail.com"
+            />
+          </label>
+          <label className="field">
+            <span>Имя</span>
+            <input
+              value={streamerForm.name}
+              onChange={(event) => setStreamerForm({ ...streamerForm, name: event.target.value })}
+              placeholder="Можно оставить пустым"
+            />
+          </label>
+          <ShinyButton className="primary-action compact" disabled={busy === "add-streamer"}>
+            <Shield size={16} />
+            Выдать роль стримера
+          </ShinyButton>
+        </form>
+      </section>
+
       <section className="panel developer-users-panel">
         <div className="panel-title panel-title-split">
           <div>
@@ -1735,10 +1852,82 @@ function DeveloperPanel({ setMessage }) {
                   {device.user_name || device.user_email} · {device.minecraft_version || "MC"} · {device.mod_version || "mod"} · {device.revoked_at ? "отвязано" : "активно"}
                 </span>
                 <small>Последний раз: {dateTime(device.last_seen_at || device.created_at)}</small>
+                {expandedDevice === device.id && (
+                  <div className="device-private-details">
+                    <span>Компьютер: {device.computer_name || "не передан"}</span>
+                    <span>ОС: {[device.os_name, device.os_version].filter(Boolean).join(" ") || "не передана"}</span>
+                    <span>Java: {device.java_version || "не передана"}</span>
+                    <span>Minecraft user: {device.minecraft_user || "не передан"}</span>
+                    <span>Locale: {device.client_locale || "не передана"}</span>
+                  </div>
+                )}
               </div>
-              <button className="icon-button danger" type="button" onClick={() => revokeDevice(device)} disabled={busy === `device:${device.id}` || Boolean(device.revoked_at)} title="Отвязать">
-                <Trash2 size={17} />
-              </button>
+              <div className="row-actions">
+                <button className="secondary-action compact" type="button" onClick={() => setExpandedDevice(expandedDevice === device.id ? "" : device.id)}>
+                  <Search size={15} />
+                  {expandedDevice === device.id ? "Скрыть" : "Детали"}
+                </button>
+                <button className="icon-button danger" type="button" onClick={() => revokeDevice(device)} disabled={busy === `device:${device.id}` || Boolean(device.revoked_at)} title="Отвязать">
+                  <Trash2 size={17} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel developer-logs-panel">
+        <div className="panel-title panel-title-split">
+          <div>
+            <Terminal size={19} />
+            <h2>Логи системы</h2>
+          </div>
+          <div className="log-filters">
+            <select value={logFilters.source} onChange={(event) => setLogFilters({ ...logFilters, source: event.target.value })}>
+              <option value="all">Все источники</option>
+              <option value="developer.roles">Роли</option>
+              <option value="developer.streamers">Стримеры</option>
+              <option value="developer_panel">Баланс dev</option>
+              <option value="streamer_panel">Баланс стримера</option>
+              <option value="developer.bridge">Bridge</option>
+            </select>
+            <select value={logFilters.level} onChange={(event) => setLogFilters({ ...logFilters, level: event.target.value })}>
+              <option value="all">Все уровни</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+        </div>
+        <div className="table-list compact-log-list">
+          {systemLogs.length === 0 && <EmptyState icon={Terminal} title="Логов нет" text="События появятся после действий в панели." />}
+          {systemLogs.map((log) => (
+            <div className="admin-row log-row" key={log.id}>
+              <div>
+                <strong>{log.message}</strong>
+                <span>{log.source} · {log.level} · {dateTime(log.createdAt)} · {log.userName || log.userEmail || "system"}</span>
+                <code>{JSON.stringify(log.metadata || {})}</code>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel developer-logs-panel">
+        <div className="panel-title">
+          <Zap size={19} />
+          <h2>Логи команд</h2>
+        </div>
+        <div className="table-list compact-log-list">
+          {commandLogs.length === 0 && <EmptyState icon={Zap} title="Логов команд нет" text="Тесты и донаты появятся здесь после отправки в bridge." />}
+          {commandLogs.map((log) => (
+            <div className="admin-row log-row" key={log.id}>
+              <div>
+                <strong>{log.actionTitle || "Команда"}</strong>
+                <span>{log.source} · {log.status} · {log.userName || "unknown"} · {dateTime(log.createdAt)}</span>
+                {log.message && <small className={log.status === "failed" ? "row-error" : ""}>{log.message}</small>}
+                <code>{(log.commands || []).map((step) => step.command).join(" | ")}</code>
+              </div>
             </div>
           ))}
         </div>

@@ -1,5 +1,6 @@
 {
   "key.categories.integro": "Integro",
   "key.integro.start_stop": "Integro Bridge: start / stop",
-  "key.integro.reconnect": "Integro Bridge: reconnect"
+  "key.integro.reconnect": "Integro Bridge: reconnect",
+  "key.integro.logout": "Integro Bridge: log out"
 }

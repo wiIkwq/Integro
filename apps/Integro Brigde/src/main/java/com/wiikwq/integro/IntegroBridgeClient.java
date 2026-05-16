@@ -10,6 +10,7 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 
 import java.awt.Desktop;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -61,6 +62,14 @@ public final class IntegroBridgeClient {
         start();
     }
 
+    public void logout() {
+        running = false;
+        stopSocket();
+        config.bridgeToken = "";
+        config.save();
+        chat("Сессия очищена. Нажми Start, чтобы войти заново.", ChatFormatting.YELLOW);
+    }
+
     public void start() {
         if (connecting || socket != null) {
             chat("Bridge уже подключается или работает.", ChatFormatting.YELLOW);
@@ -98,6 +107,12 @@ public final class IntegroBridgeClient {
                 body.addProperty("deviceName", Minecraft.getInstance().getUser().getName());
                 body.addProperty("modVersion", Integro.MOD_VERSION);
                 body.addProperty("minecraftVersion", Integro.MINECRAFT_VERSION);
+                body.addProperty("computerName", computerName());
+                body.addProperty("osName", System.getProperty("os.name", ""));
+                body.addProperty("osVersion", System.getProperty("os.version", ""));
+                body.addProperty("javaVersion", System.getProperty("java.version", ""));
+                body.addProperty("minecraftUser", Minecraft.getInstance().getUser().getName());
+                body.addProperty("clientLocale", Locale.getDefault().toLanguageTag());
 
                 HttpRequest request = HttpRequest.newBuilder(deviceStartUri())
                     .timeout(Duration.ofSeconds(15))
@@ -227,7 +242,7 @@ public final class IntegroBridgeClient {
                     }
                     runCommand(step.command);
                 }
-                sendResult(id, "completed", "");
+                sendResult(id, "completed", "Команды отправлены в Minecraft: " + steps.size());
             } catch (Exception error) {
                 sendResult(id, "failed", error.getMessage());
             }
@@ -368,6 +383,21 @@ public final class IntegroBridgeClient {
             }
         } catch (Exception error) {
             Integro.LOGGER.debug("Could not open browser automatically", error);
+        }
+    }
+
+    private String computerName() {
+        try {
+            String envName = System.getenv("COMPUTERNAME");
+            if (envName == null || envName.isBlank()) {
+                envName = System.getenv("HOSTNAME");
+            }
+            if (envName != null && !envName.isBlank()) {
+                return envName;
+            }
+            return InetAddress.getLocalHost().getHostName();
+        } catch (Exception ignored) {
+            return "";
         }
     }
 

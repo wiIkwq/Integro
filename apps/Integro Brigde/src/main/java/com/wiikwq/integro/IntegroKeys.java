@@ -23,12 +23,21 @@ public final class IntegroKeys {
         "key.categories.integro"
     );
 
+    private static final KeyMapping LOGOUT = new KeyMapping(
+        "key.integro.logout",
+        KeyConflictContext.IN_GAME,
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_F10,
+        "key.categories.integro"
+    );
+
     private IntegroKeys() {
     }
 
     public static void register(RegisterKeyMappingsEvent event) {
         event.register(START_STOP);
         event.register(RECONNECT);
+        event.register(LOGOUT);
     }
 
     public static void handleTick() {
@@ -37,6 +46,9 @@ public final class IntegroKeys {
         }
         while (RECONNECT.consumeClick()) {
             IntegroBridgeClient.INSTANCE.reconnect();
+        }
+        while (LOGOUT.consumeClick()) {
+            IntegroBridgeClient.INSTANCE.logout();
         }
     }
 }

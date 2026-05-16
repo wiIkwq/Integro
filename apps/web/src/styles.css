@@ -1407,6 +1407,49 @@ code {
   width: 180px;
 }
 
+.developer-add-form,
+.modal-balance-form {
+  display: grid;
+  gap: 12px;
+}
+
+.developer-logs-panel {
+  grid-column: 1 / -1;
+}
+
+.log-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.log-filters select {
+  width: 170px;
+}
+
+.compact-log-list {
+  max-height: 460px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.log-row code {
+  max-width: min(980px, 78vw);
+}
+
+.device-private-details {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 2px solid rgba(231, 244, 228, 0.5);
+  background: rgba(231, 244, 228, 0.05);
+}
+
+.device-private-details span {
+  color: #d9e5d8;
+  font-size: 12px;
+}
+
 .row-title {
   display: flex;
   flex-wrap: wrap;
@@ -2023,10 +2066,15 @@ code {
   }
 
   .developer-controls > select,
+  .log-filters select,
   .balance-adjust-form select,
   .balance-adjust-form input,
   .balance-adjust-form input:nth-of-type(2) {
     width: 100%;
+  }
+
+  .log-filters {
+    flex-direction: column;
   }
 
   .user-search {

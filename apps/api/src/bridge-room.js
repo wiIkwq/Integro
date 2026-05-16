@@ -27,12 +27,21 @@ export class BridgeRoom {
 
     if (url.pathname.endsWith("/dispatch-test")) {
       const body = await request.json().catch(() => ({}));
+      const id = `test-${crypto.randomUUID()}`;
+      const commands = parseCommandSnapshot(JSON.stringify(body.commands || []));
+      await this.createCommandLog({
+        id,
+        source: "test",
+        actionTitle: String(body.title || "Integro test").slice(0, 120),
+        userName: String(body.userName || "Стример"),
+        commands
+      });
       const sent = await this.sendEvent({
         type: "execute",
-        id: `test-${crypto.randomUUID()}`,
+        id,
         title: String(body.title || "Integro test").slice(0, 120),
-        command: body.commands?.[0]?.command || "",
-        commands: parseCommandSnapshot(JSON.stringify(body.commands || [])),
+        command: commands[0]?.command || "",
+        commands,
         amount: 0,
         userName: String(body.userName || "Стример"),
         userEmail: "",
@@ -181,6 +190,14 @@ export class BridgeRoom {
       createdAt: row.created_at
     };
 
+    await this.createCommandLog({
+      id: row.id,
+      source: "purchase",
+      purchaseId: row.id,
+      actionTitle: row.title,
+      userName: row.user_name,
+      commands
+    });
     return this.sendEvent(event);
   }
 
@@ -198,15 +215,23 @@ export class BridgeRoom {
   async recordResult(payload) {
     const purchaseId = String(payload.id || "");
     const status = payload.status === "completed" ? "completed" : "failed";
-    const message = String(payload.message || "").slice(0, 500);
+    const message = String(payload.message || "").slice(0, 500) || (status === "completed" ? "Команда отправлена в Minecraft" : "");
     const now = new Date().toISOString();
+
+    await this.env.DB.prepare(
+      `UPDATE bridge_command_logs
+       SET status = ?, message = ?, completed_at = ?
+       WHERE id = ?`
+    ).bind(status, message, now, purchaseId).run();
+
+    if (purchaseId.startsWith("test-")) return;
 
     if (status === "completed") {
       await this.env.DB.prepare(
         `UPDATE action_purchases
-         SET status = 'completed', completed_at = ?, error_message = NULL
+         SET status = 'completed', completed_at = ?, error_message = ?
          WHERE id = ? AND status = 'queued'`
-      ).bind(now, purchaseId).run();
+      ).bind(now, message, purchaseId).run();
       return;
     }
 
@@ -236,11 +261,35 @@ export class BridgeRoom {
   }
 
   async markHeartbeat(device = null) {
+    const previous = device ? null : await this.state.storage.get("heartbeat");
+    const deviceId = device?.id || previous?.deviceId || null;
+    const userId = device?.user_id || previous?.userId || null;
+    if (deviceId) {
+      await this.env.DB.prepare("UPDATE bridge_devices SET last_seen_at = ? WHERE id = ?")
+        .bind(new Date().toISOString(), deviceId)
+        .run();
+    }
     await this.state.storage.put("heartbeat", {
       lastSeenAt: Date.now(),
-      deviceId: device?.id || null,
-      userId: device?.user_id || null
+      deviceId,
+      userId
     });
+  }
+
+  async createCommandLog({ id, source, purchaseId = null, actionTitle, userName, commands }) {
+    await this.env.DB.prepare(
+      `INSERT OR REPLACE INTO bridge_command_logs
+       (id, source, purchase_id, action_title, user_name, status, command_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`
+    ).bind(
+      id,
+      source,
+      purchaseId,
+      actionTitle,
+      userName,
+      JSON.stringify(commands || []),
+      new Date().toISOString()
+    ).run();
   }
 }
 
