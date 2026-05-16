@@ -94,9 +94,29 @@ export async function requireUser(c, next) {
 export async function requireAdmin(c, next) {
   const user = await currentUser(c);
   if (!user) return fail("Authentication required", "auth_required", 401);
-  if (user.role !== "admin") return fail("Admin access required", "forbidden", 403);
+  if (!canManageStreamer(user)) return fail("Streamer access required", "forbidden", 403);
   c.set("user", user);
   await next();
+}
+
+export async function requireDeveloper(c, next) {
+  const user = await currentUser(c);
+  if (!user) return fail("Authentication required", "auth_required", 401);
+  if (!isDeveloper(user)) return fail("Developer access required", "forbidden", 403);
+  c.set("user", user);
+  await next();
+}
+
+export function isDeveloper(user) {
+  return user?.role === "developer" || user?.role === "admin";
+}
+
+export function canManageStreamer(user) {
+  return user?.role === "streamer" || isDeveloper(user);
+}
+
+export function canConnectBridge(user) {
+  return canManageStreamer(user);
 }
 
 export function publicUser(user) {

@@ -1,3 +1,5 @@
+import { sha256Hex } from "./auth.js";
+
 export class BridgeRoom {
   constructor(state, env) {
     this.state = state;
@@ -31,16 +33,42 @@ export class BridgeRoom {
 
   async connect(request) {
     const auth = request.headers.get("authorization") || "";
-    if (auth !== `Bearer ${this.env.BRIDGE_TOKEN}`) {
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    const device = token ? await this.authorizeDevice(token) : null;
+    if (!device && (!this.env.BRIDGE_TOKEN || auth !== `Bearer ${this.env.BRIDGE_TOKEN}`)) {
       return new Response("Unauthorized", { status: 401 });
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
-    server.send(JSON.stringify({ type: "hello", serverTime: new Date().toISOString() }));
+    server.send(JSON.stringify({
+      type: "hello",
+      serverTime: new Date().toISOString(),
+      streamerName: device?.user_name || null
+    }));
     await this.flushQueued();
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async authorizeDevice(token) {
+    const tokenHash = await sha256Hex(token);
+    const device = await this.env.DB.prepare(
+      `SELECT bridge_devices.id,
+              bridge_devices.user_id,
+              bridge_devices.revoked_at,
+              users.name AS user_name,
+              users.role AS user_role
+       FROM bridge_devices
+       JOIN users ON users.id = bridge_devices.user_id
+       WHERE bridge_devices.token_hash = ?`
+    ).bind(tokenHash).first();
+    if (!device || device.revoked_at) return null;
+    if (!["admin", "developer", "streamer"].includes(device.user_role)) return null;
+    await this.env.DB.prepare("UPDATE bridge_devices SET last_seen_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), device.id)
+      .run();
+    return device;
   }
 
   async webSocketMessage(webSocket, message) {

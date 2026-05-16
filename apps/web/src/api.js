@@ -72,5 +72,12 @@ export const api = {
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
   adminResetData: () => request("/admin/reset", { method: "POST" }),
-  flushBridge: () => request("/bridge/flush", { method: "POST" })
+  flushBridge: () => request("/bridge/flush", { method: "POST" }),
+  developerUsers: () => request("/developer/users"),
+  updateUserRole: (id, role) =>
+    request(`/developer/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  adjustUserBalance: (id, body) =>
+    request(`/developer/users/${id}/balance`, { method: "POST", body: JSON.stringify(body) }),
+  bridgeDevices: () => request("/developer/bridge-devices"),
+  revokeBridgeDevice: (id) => request(`/developer/bridge-devices/${id}`, { method: "DELETE" })
 };

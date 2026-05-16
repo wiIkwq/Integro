@@ -5,14 +5,17 @@ import {
   clearSession,
   createSession,
   currentUser,
+  canConnectBridge,
   isAdminEmail,
   publicUser,
   randomToken,
   readOauthStateCookie,
   requireAdmin,
+  requireDeveloper,
   requireUser,
   safeReturnTo,
-  setOauthStateCookie
+  setOauthStateCookie,
+  sha256Hex
 } from "./auth.js";
 import { ok, fail } from "./response.js";
 import { normalizeCode, optionalDate, requireInt, requireString } from "./validation.js";
@@ -753,15 +756,209 @@ app.get("/admin/purchases", requireAdmin, async (c) => {
 app.post("/admin/reset", requireAdmin, async (c) => {
   const now = new Date().toISOString();
   await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role != 'admin')"),
+    c.env.DB.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role NOT IN ('admin', 'developer', 'streamer'))"),
     c.env.DB.prepare("DELETE FROM balance_transactions"),
     c.env.DB.prepare("DELETE FROM voucher_redemptions"),
     c.env.DB.prepare("DELETE FROM action_purchases"),
     c.env.DB.prepare("UPDATE vouchers SET redeemed_count = 0, updated_at = ? WHERE deleted_at IS NULL").bind(now),
-    c.env.DB.prepare("DELETE FROM users WHERE role != 'admin'"),
-    c.env.DB.prepare("UPDATE users SET balance = 0, updated_at = ? WHERE role = 'admin'").bind(now)
+    c.env.DB.prepare("DELETE FROM users WHERE role NOT IN ('admin', 'developer', 'streamer')"),
+    c.env.DB.prepare("UPDATE users SET balance = 0, updated_at = ? WHERE role IN ('admin', 'developer', 'streamer')").bind(now)
   ]);
   return c.json(ok());
+});
+
+app.get("/developer/users", requireDeveloper, async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT users.id,
+            users.email,
+            users.name,
+            users.avatar_url,
+            users.role,
+            users.balance,
+            users.created_at,
+            users.updated_at,
+            COALESCE(stats.total_received, 0) AS total_received,
+            COALESCE(stats.total_spent, 0) AS total_spent,
+            COALESCE(purchases.purchases_count, 0) AS purchases_count
+     FROM users
+     LEFT JOIN (
+       SELECT user_id,
+              COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_received,
+              COALESCE(SUM(CASE WHEN type = 'action_purchase' THEN -amount ELSE 0 END), 0) AS total_spent
+       FROM balance_transactions
+       GROUP BY user_id
+     ) stats ON stats.user_id = users.id
+     LEFT JOIN (
+       SELECT user_id, COUNT(*) AS purchases_count
+       FROM action_purchases
+       GROUP BY user_id
+     ) purchases ON purchases.user_id = users.id
+     ORDER BY users.created_at DESC
+     LIMIT 500`
+  ).all();
+  return c.json(ok({ users: (rows.results || []).map(mapDeveloperUser) }));
+});
+
+app.patch("/developer/users/:id/role", requireDeveloper, async (c) => {
+  const actor = c.get("user");
+  const body = await c.req.json().catch(() => ({}));
+  const role = normalizeRole(body.role);
+  if (!role) return fail("Invalid role", "invalid_role", 400);
+  if (actor.id === c.req.param("id") && role !== "developer") {
+    return fail("You cannot remove your own developer access", "self_role_change_forbidden", 409);
+  }
+
+  const existing = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(c.req.param("id")).first();
+  if (!existing) return fail("User not found", "not_found", 404);
+
+  await c.env.DB.prepare("UPDATE users SET role = ?, updated_at = ? WHERE id = ?")
+    .bind(role, new Date().toISOString(), existing.id)
+    .run();
+  return c.json(ok());
+});
+
+app.post("/developer/users/:id/balance", requireDeveloper, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const mode = body.mode === "set" || body.mode === "deduct" ? body.mode : "grant";
+  const amount = requireInt(body.amount, "amount", 0, 1000000000);
+  const note = String(body.reason || "Ручная корректировка").trim().slice(0, 240);
+  const target = await c.env.DB.prepare("SELECT id, balance FROM users WHERE id = ?").bind(c.req.param("id")).first();
+  if (!target) return fail("User not found", "not_found", 404);
+
+  const delta = mode === "set" ? amount - Number(target.balance || 0) : mode === "deduct" ? -amount : amount;
+  const nextBalance = Number(target.balance || 0) + delta;
+  if (nextBalance < 0) return fail("Balance cannot be negative", "negative_balance", 409);
+
+  const now = new Date().toISOString();
+  const txId = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE users SET balance = ?, updated_at = ? WHERE id = ?").bind(nextBalance, now, target.id),
+    c.env.DB.prepare(
+      `INSERT INTO balance_transactions (id, user_id, type, amount, reference_id, note, created_at)
+       VALUES (?, ?, 'manual_adjustment', ?, ?, ?, ?)`
+    ).bind(txId, target.id, delta, c.get("user").id, note, now)
+  ]);
+
+  return c.json(ok({ balance: nextBalance, delta }));
+});
+
+app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT bridge_devices.id,
+            bridge_devices.name,
+            bridge_devices.mod_version,
+            bridge_devices.minecraft_version,
+            bridge_devices.created_at,
+            bridge_devices.last_seen_at,
+            bridge_devices.revoked_at,
+            users.name AS user_name,
+            users.email AS user_email,
+            users.role AS user_role
+     FROM bridge_devices
+     JOIN users ON users.id = bridge_devices.user_id
+     ORDER BY COALESCE(bridge_devices.last_seen_at, bridge_devices.created_at) DESC
+     LIMIT 200`
+  ).all();
+  return c.json(ok({ devices: rows.results || [] }));
+});
+
+app.delete("/developer/bridge-devices/:id", requireDeveloper, async (c) => {
+  await c.env.DB.prepare("UPDATE bridge_devices SET revoked_at = ? WHERE id = ?")
+    .bind(new Date().toISOString(), c.req.param("id"))
+    .run();
+  return c.json(ok());
+});
+
+app.post("/bridge/device/start", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const code = deviceCode();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const deviceName = String(body.deviceName || "Minecraft").trim().slice(0, 80);
+  const modVersion = String(body.modVersion || "").trim().slice(0, 40);
+  const minecraftVersion = String(body.minecraftVersion || "").trim().slice(0, 40);
+
+  await c.env.DB.prepare(
+    `INSERT INTO bridge_device_codes
+     (id, code, device_name, mod_version, minecraft_version, status, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(id, code, deviceName, modVersion, minecraftVersion, expiresAt, now).run();
+
+  const loginUrl = `${apiOrigin(c)}/bridge/link?code=${encodeURIComponent(code)}`;
+  return c.json(ok({ code, loginUrl, expiresAt, pollAfterMs: 2500 }));
+});
+
+app.get("/bridge/link", async (c) => {
+  const code = normalizeDeviceCode(c.req.query("code"));
+  if (!code) return fail("Device code is required", "invalid_device_code", 400);
+  const user = await currentUser(c);
+  const returnTo = `${apiOrigin(c)}/bridge/link?code=${encodeURIComponent(code)}`;
+  if (!user) {
+    return c.redirect(`${apiOrigin(c)}/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  const pending = await c.env.DB.prepare(
+    "SELECT * FROM bridge_device_codes WHERE code = ? AND status = 'pending'"
+  ).bind(code).first();
+  if (!pending || new Date(pending.expires_at) < new Date()) {
+    return bridgeLinkPage("Код устарел", "Вернись в Minecraft и нажми Start еще раз.", false);
+  }
+
+  if (!canConnectBridge(user)) {
+    await c.env.DB.prepare(
+      "UPDATE bridge_device_codes SET status = 'denied', denied_reason = ?, approved_user_id = ?, approved_at = ? WHERE id = ?"
+    ).bind("Недостаточно прав. Bridge может подключить только стример.", user.id, new Date().toISOString(), pending.id).run();
+    return bridgeLinkPage("Нет доступа", "Этот Google-аккаунт не имеет роли стримера или разработчика.", false);
+  }
+
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const deviceId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO bridge_devices
+       (id, user_id, token_hash, name, mod_version, minecraft_version, created_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(deviceId, user.id, tokenHash, pending.device_name, pending.mod_version, pending.minecraft_version, now, now),
+    c.env.DB.prepare(
+      `UPDATE bridge_device_codes
+       SET status = 'approved', approved_user_id = ?, approved_device_id = ?, device_token = ?, approved_at = ?
+       WHERE id = ?`
+    ).bind(user.id, deviceId, token, now, pending.id)
+  ]);
+
+  return bridgeLinkPage("Bridge подключен", "Можешь вернуться в Minecraft. Мод подключится автоматически.", true);
+});
+
+app.get("/bridge/device/poll", async (c) => {
+  const code = normalizeDeviceCode(c.req.query("code"));
+  if (!code) return fail("Device code is required", "invalid_device_code", 400);
+  const row = await c.env.DB.prepare(
+    `SELECT bridge_device_codes.*,
+            users.name AS user_name,
+            users.role AS user_role
+     FROM bridge_device_codes
+     LEFT JOIN users ON users.id = bridge_device_codes.approved_user_id
+     WHERE bridge_device_codes.code = ?`
+  ).bind(code).first();
+
+  if (!row) return fail("Device code not found", "not_found", 404);
+  if (new Date(row.expires_at) < new Date() && row.status === "pending") {
+    await c.env.DB.prepare("UPDATE bridge_device_codes SET status = 'expired' WHERE id = ?").bind(row.id).run();
+    return c.json(ok({ status: "expired" }));
+  }
+  if (row.status === "approved" && row.device_token) {
+    await c.env.DB.prepare("UPDATE bridge_device_codes SET device_token = NULL WHERE id = ?").bind(row.id).run();
+    return c.json(ok({
+      status: "approved",
+      token: row.device_token,
+      streamerName: row.user_name,
+      role: row.user_role
+    }));
+  }
+  return c.json(ok({ status: row.status, reason: row.denied_reason || null }));
 });
 
 app.get("/bridge/connect", async (c) => {
@@ -785,8 +982,9 @@ function normalizeEmail(email) {
 
 function accountRole(env, email) {
   const normalized = normalizeEmail(email);
-  if (normalized === "bogdan3000tm@gmail.com") return "user";
-  return isAdminEmail(env, normalized) ? "admin" : "user";
+  if (normalized === "bogdan3000tm@gmail.com") return "tester";
+  if (normalized === "ihnatenko.bogdan@gmail.com") return "developer";
+  return isAdminEmail(env, normalized) ? "streamer" : "user";
 }
 
 function displayNameForEmail(email, fallback) {
@@ -879,6 +1077,74 @@ function clampNumber(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
   return Math.max(min, Math.min(max, Math.trunc(number)));
+}
+
+function normalizeRole(value) {
+  const role = String(value || "").trim().toLowerCase();
+  return ["user", "tester", "streamer", "developer"].includes(role) ? role : "";
+}
+
+function mapDeveloperUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    balance: row.balance,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    totalReceived: row.total_received,
+    totalSpent: row.total_spent,
+    purchasesCount: row.purchases_count
+  };
+}
+
+function deviceCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let value = "";
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  for (const byte of bytes) value += alphabet[byte % alphabet.length];
+  return `${value.slice(0, 4)}-${value.slice(4)}`;
+}
+
+function normalizeDeviceCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
+}
+
+function bridgeLinkPage(title, message, success) {
+  const accent = success ? "#7cff9b" : "#ff638a";
+  return new Response(`<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Integro Bridge</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #070807; color: #f7fbf3; font-family: Inter, system-ui, sans-serif; }
+    main { width: min(520px, calc(100vw - 32px)); border: 2px solid #e7f4e4; background: #111411; padding: 28px; box-shadow: 8px 8px 0 #e7f4e4; }
+    h1 { margin: 0 0 12px; font-size: 34px; }
+    p { margin: 0; color: #aeb8ad; font-weight: 800; line-height: 1.45; }
+    b { display: inline-grid; place-items: center; width: 42px; height: 42px; margin-bottom: 18px; border: 2px solid ${accent}; color: ${accent}; }
+  </style>
+</head>
+<body>
+  <main>
+    <b>${success ? "OK" : "!"}</b>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+  </main>
+</body>
+</html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function sanitizeCommandPart(value) {

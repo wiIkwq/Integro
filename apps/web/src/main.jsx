@@ -127,7 +127,18 @@ function roleTitle(user) {
   const email = String(user?.email || "").toLowerCase();
   if (email === "bogdan3000tm@gmail.com") return "Тестер";
   if (email === "ihnatenko.bogdan@gmail.com") return "Разработчик";
-  return user?.role === "admin" ? "Стример" : "Зритель";
+  if (user?.role === "developer" || user?.role === "admin") return "Разработчик";
+  if (user?.role === "streamer") return "Стример";
+  if (user?.role === "tester") return "Тестер";
+  return "Зритель";
+}
+
+function canOpenStreamerPanel(user) {
+  return ["admin", "developer", "streamer"].includes(user?.role);
+}
+
+function canOpenDeveloperPanel(user) {
+  return ["admin", "developer"].includes(user?.role);
 }
 
 function fileToDataUrl(file, maxBytes = 7 * 1024 * 1024) {
@@ -338,8 +349,8 @@ function App() {
     <>
       <AppBackground />
       <Shell user={me} onLogout={logout} error={error}>
-        {me.role === "admin" ? (
-          <AdminDashboard onUserChange={setMe} />
+        {canOpenStreamerPanel(me) ? (
+          <AdminDashboard user={me} onUserChange={setMe} />
         ) : (
           <UserDashboard user={me} onUserChange={setMe} />
         )}
@@ -374,7 +385,7 @@ function Shell({ user, onLogout, error, children }) {
           <span>Integro</span>
         </div>
         <div className="topbar-right">
-          {user.role !== "admin" && (
+          {!canOpenStreamerPanel(user) && (
             <div className="balance-chip">
               <Coins size={16} />
               {coinAmount(user.balance)}
@@ -384,7 +395,7 @@ function Shell({ user, onLogout, error, children }) {
             <button className="profile-chip" type="button" onClick={toggleProfile} aria-expanded={profileOpen}>
               {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={18} />}
               <span>{user.name || "Профиль"}</span>
-              {user.role === "admin" && <Shield size={15} />}
+              {canOpenStreamerPanel(user) && <Shield size={15} />}
               <ChevronDown size={15} />
             </button>
           </div>
@@ -410,13 +421,13 @@ function ProfileStats({ user, stats, error, onLogout }) {
         </div>
       </div>
       {error && <Notice notice={{ tone: "error", text: error }} />}
-      {!stats && !error && user.role !== "admin" && (
+      {!stats && !error && !canOpenStreamerPanel(user) && (
         <div className="mini-loading">
           <Loader2 className="spin" size={16} />
           Загружаем статистику
         </div>
       )}
-      {stats && user.role !== "admin" && (
+      {stats && !canOpenStreamerPanel(user) && (
         <div className="profile-stats-grid">
           <StatMini label="Баланс" value={coinAmount(stats.balance)} />
           <StatMini label="Пополнено" value={coinAmount(stats.totalReceived)} />
@@ -624,7 +635,7 @@ function SkeletonCards({ count }) {
   ));
 }
 
-function AdminDashboard({ onUserChange }) {
+function AdminDashboard({ user, onUserChange }) {
   const [tab, setTab] = useState("actions");
   const [actions, setActions] = useState([]);
   const [vouchers, setVouchers] = useState([]);
@@ -633,6 +644,7 @@ function AdminDashboard({ onUserChange }) {
   const [overview, setOverview] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const isDeveloper = canOpenDeveloperPanel(user);
 
   useEffect(() => {
     if (!message) return undefined;
@@ -689,7 +701,8 @@ function AdminDashboard({ onUserChange }) {
     { id: "actions", label: "Команды", icon: Terminal, count: actions.length },
     { id: "vouchers", label: "Ваучеры", icon: Ticket, count: vouchers.length },
     { id: "users", label: "Пользователи", icon: Users, count: users.length },
-    { id: "donations", label: "Донаты", icon: Zap, count: purchases.length }
+    { id: "donations", label: "Донаты", icon: Zap, count: purchases.length },
+    ...(isDeveloper ? [{ id: "developer", label: "Developer", icon: Shield, count: 0 }] : [])
   ];
 
   return (
@@ -740,6 +753,7 @@ function AdminDashboard({ onUserChange }) {
       {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
       {tab === "users" && <AdminUsers users={users} />}
       {tab === "donations" && <AdminDonations purchases={purchases} />}
+      {tab === "developer" && isDeveloper && <DeveloperPanel setMessage={setMessage} />}
     </main>
   );
 }
@@ -1458,8 +1472,8 @@ function UserDetailsModal({ user, onClose }) {
             <p>Зарегистрирован: {dateTime(user.createdAt) || "нет даты"}</p>
           </div>
         </div>
-        <div className={`modal-stats ${user.role === "admin" ? "streamer-stats" : ""}`}>
-          {user.role !== "admin" && <StatMini label="Баланс" value={coinAmount(user.balance)} />}
+        <div className={`modal-stats ${canOpenStreamerPanel(user) ? "streamer-stats" : ""}`}>
+          {!canOpenStreamerPanel(user) && <StatMini label="Баланс" value={coinAmount(user.balance)} />}
           <StatMini label="Получил" value={coinAmount(user.totalReceived)} />
           <StatMini label="Потратил" value={coinAmount(user.totalSpent)} />
           <StatMini label="Донатов" value={user.purchasesCount || 0} />
@@ -1490,6 +1504,171 @@ function AdminDonations({ purchases }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function DeveloperPanel({ setMessage }) {
+  const [users, setUsers] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState("");
+  const [balanceForms, setBalanceForms] = useState({});
+
+  const filteredUsers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return users;
+    return users.filter((user) => `${user.name || ""} ${user.email || ""} ${user.role || ""}`.toLowerCase().includes(needle));
+  }, [query, users]);
+
+  async function refresh() {
+    const [nextUsers, nextDevices] = await Promise.all([api.developerUsers(), api.bridgeDevices()]);
+    setUsers(nextUsers.users);
+    setDevices(nextDevices.devices);
+  }
+
+  useEffect(() => {
+    refresh().catch((err) => setMessage(err.message));
+  }, []);
+
+  async function updateRole(user, role) {
+    setBusy(`role:${user.id}`);
+    try {
+      await api.updateUserRole(user.id, role);
+      setMessage("Роль обновлена");
+      await refresh();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function adjustBalance(event, user) {
+    event.preventDefault();
+    const form = balanceForms[user.id] || { mode: "grant", amount: "", reason: "" };
+    setBusy(`balance:${user.id}`);
+    try {
+      const result = await api.adjustUserBalance(user.id, {
+        mode: form.mode || "grant",
+        amount: Number(form.amount || 0),
+        reason: form.reason || "Developer panel"
+      });
+      setMessage(`Баланс обновлен: ${coinAmount(result.balance)}`);
+      setBalanceForms((current) => ({ ...current, [user.id]: { mode: "grant", amount: "", reason: "" } }));
+      await refresh();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function revokeDevice(device) {
+    setBusy(`device:${device.id}`);
+    try {
+      await api.revokeBridgeDevice(device.id);
+      setMessage("Bridge-устройство отвязано");
+      await refresh();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function setBalanceForm(userId, patch) {
+    setBalanceForms((current) => ({
+      ...current,
+      [userId]: { mode: "grant", amount: "", reason: "", ...(current[userId] || {}), ...patch }
+    }));
+  }
+
+  return (
+    <section className="grid admin-grid developer-grid">
+      <section className="panel developer-users-panel">
+        <div className="panel-title panel-title-split">
+          <div>
+            <Shield size={19} />
+            <h2>Developer panel</h2>
+          </div>
+          <label className="input-icon user-search">
+            <Search size={17} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя, email или роль" />
+          </label>
+        </div>
+        <div className="table-list">
+          {filteredUsers.map((user) => {
+            const form = balanceForms[user.id] || { mode: "grant", amount: "", reason: "" };
+            return (
+              <div className="admin-row developer-user-row" key={user.id}>
+                <div className="user-line">
+                  {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
+                  <div>
+                    <strong>{user.name || "Пользователь"}</strong>
+                    <span>{user.email} · {coinAmount(user.balance)} · {roleTitle(user)}</span>
+                  </div>
+                </div>
+                <div className="developer-controls">
+                  <select value={user.role} onChange={(event) => updateRole(user, event.target.value)} disabled={busy === `role:${user.id}`}>
+                    <option value="user">Зритель</option>
+                    <option value="tester">Тестер</option>
+                    <option value="streamer">Стример</option>
+                    <option value="developer">Разработчик</option>
+                  </select>
+                  <form className="balance-adjust-form" onSubmit={(event) => adjustBalance(event, user)}>
+                    <select value={form.mode} onChange={(event) => setBalanceForm(user.id, { mode: event.target.value })}>
+                      <option value="grant">Выдать</option>
+                      <option value="deduct">Списать</option>
+                      <option value="set">Установить</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.amount}
+                      onChange={(event) => setBalanceForm(user.id, { amount: event.target.value })}
+                      placeholder="Монеты"
+                    />
+                    <input
+                      value={form.reason}
+                      onChange={(event) => setBalanceForm(user.id, { reason: event.target.value })}
+                      placeholder="Причина"
+                    />
+                    <button className="secondary-action compact" type="submit" disabled={busy === `balance:${user.id}`}>
+                      <Coins size={15} />
+                      OK
+                    </button>
+                  </form>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <Wifi size={19} />
+          <h2>Bridge устройства</h2>
+        </div>
+        <div className="table-list">
+          {devices.length === 0 && <EmptyState icon={WifiOff} title="Устройств нет" text="После логина мода устройства появятся здесь." />}
+          {devices.map((device) => (
+            <div className="admin-row" key={device.id}>
+              <div>
+                <strong>{device.name || "Minecraft"}</strong>
+                <span>
+                  {device.user_name || device.user_email} · {device.minecraft_version || "MC"} · {device.mod_version || "mod"} · {device.revoked_at ? "отвязано" : "активно"}
+                </span>
+                <small>Последний раз: {dateTime(device.last_seen_at || device.created_at)}</small>
+              </div>
+              <button className="icon-button danger" type="button" onClick={() => revokeDevice(device)} disabled={busy === `device:${device.id}` || Boolean(device.revoked_at)} title="Отвязать">
+                <Trash2 size={17} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }

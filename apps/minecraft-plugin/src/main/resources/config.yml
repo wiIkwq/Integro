@@ -1,3 +1,0 @@
-apiUrl: "wss://integro-api.bogdan3000tm1331.workers.dev/bridge/connect"
-bridgeToken: "replace-with-worker-bridge-token"
-reconnectSeconds: 5

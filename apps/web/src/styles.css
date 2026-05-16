@@ -1367,6 +1367,46 @@ code {
   white-space: nowrap;
 }
 
+.developer-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
+}
+
+.developer-user-row {
+  align-items: flex-start;
+}
+
+.developer-user-row > .user-line {
+  min-width: 260px;
+}
+
+.developer-controls,
+.balance-adjust-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.developer-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.developer-controls > select {
+  width: 150px;
+}
+
+.balance-adjust-form select {
+  width: 120px;
+}
+
+.balance-adjust-form input {
+  width: 120px;
+}
+
+.balance-adjust-form input:nth-of-type(2) {
+  width: 180px;
+}
+
 .row-title {
   display: flex;
   flex-wrap: wrap;
@@ -1971,9 +2011,22 @@ code {
   .admin-row,
   .action-top,
   .row-actions,
-  .panel-title-split {
+  .panel-title-split,
+  .developer-controls,
+  .balance-adjust-form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .developer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-controls > select,
+  .balance-adjust-form select,
+  .balance-adjust-form input,
+  .balance-adjust-form input:nth-of-type(2) {
+    width: 100%;
   }
 
   .user-search {
