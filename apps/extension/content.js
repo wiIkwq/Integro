@@ -268,9 +268,18 @@ async function checkPage() {
   }
 }
 
+function integroClickTarget(event) {
+  const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+  return node?.closest?.("[data-integro-action]") || null;
+}
+
 document.addEventListener("click", async (event) => {
-  const target = event.target.closest("[data-integro-action]");
+  const target = integroClickTarget(event);
   if (!target) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
 
   const action = target.dataset.integroAction;
   if (action === "login") {
@@ -294,7 +303,7 @@ document.addEventListener("click", async (event) => {
   if (action === "buy") {
     await buyAction(target.dataset.id);
   }
-});
+}, true);
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "integro-auth-ready") {
