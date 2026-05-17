@@ -17,6 +17,7 @@
       "/actions/*",
       "/vouchers/*",
       "/admin/*",
+      "/developer/*",
       "/bridge/*"
     ]
   },

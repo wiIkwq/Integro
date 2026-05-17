@@ -1781,7 +1781,7 @@ function DeveloperPanel({ setMessage }) {
         <div className="panel-title panel-title-split">
           <div>
             <Shield size={19} />
-            <h2>Developer panel</h2>
+            <h2>Панель разработчика</h2>
           </div>
           <label className="input-icon user-search">
             <Search size={17} />
@@ -1789,6 +1789,7 @@ function DeveloperPanel({ setMessage }) {
           </label>
         </div>
         <div className="table-list">
+          {filteredUsers.length === 0 && <EmptyState icon={Search} title="Ничего не найдено" text="Проверь имя, email или выбранную роль." />}
           {filteredUsers.map((user) => {
             const form = balanceForms[user.id] || { mode: "grant", amount: "", reason: "" };
             return (

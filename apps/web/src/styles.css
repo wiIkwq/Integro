@@ -142,6 +142,13 @@ a {
   font-weight: 950;
 }
 
+.brand-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .brand-row-large {
   font-size: 18px;
 }
@@ -1379,6 +1386,10 @@ code {
   min-width: 260px;
 }
 
+.developer-users-panel {
+  min-width: 0;
+}
+
 .developer-controls,
 .balance-adjust-form {
   display: flex;
@@ -1430,6 +1441,10 @@ code {
   max-height: 460px;
   overflow: auto;
   padding-right: 4px;
+}
+
+.compact-log-list .empty {
+  min-height: 180px;
 }
 
 .log-row code {
@@ -2037,6 +2052,10 @@ code {
     max-width: 190px;
   }
 
+  .brand-row-large > span {
+    max-width: 34vw;
+  }
+
   .profile-popover {
     top: 76px;
     right: 12px;
@@ -2065,6 +2084,10 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .developer-user-row > .user-line {
+    min-width: 0;
+  }
+
   .developer-controls > select,
   .log-filters select,
   .balance-adjust-form select,
@@ -2091,9 +2114,22 @@ code {
 
   .input-with-button .secondary-action,
   .voucher-strip .primary-action,
+  .developer-add-form .primary-action,
+  .balance-adjust-form .secondary-action,
   .row-actions .secondary-action,
   .row-actions .icon-button {
     width: 100%;
+  }
+
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scrollbar-width: thin;
+  }
+
+  .tabs button {
+    flex: 0 0 auto;
   }
 
   .metrics,
@@ -2111,6 +2147,11 @@ code {
 }
 
 @media (max-width: 520px) {
+  .topbar {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
   .workspace,
   .user-workspace {
     width: min(100% - 20px, 1180px);
@@ -2134,7 +2175,29 @@ code {
   }
 
   .profile-chip {
-    max-width: 155px;
+    max-width: 48vw;
+    padding-inline: 9px;
+  }
+
+  .profile-chip span {
+    max-width: 32vw;
+  }
+
+  .brand-row-large > span {
+    max-width: 24vw;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .panel-title {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .panel-title h2 {
+    font-size: 16px;
   }
 
   .notice {
@@ -2171,7 +2234,24 @@ code {
   }
 
   .tabs button {
-    flex: 1 1 140px;
+    min-height: 38px;
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+
+  .admin-row,
+  .user-row {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .admin-row code,
+  .log-row code {
+    max-width: calc(100vw - 54px);
+  }
+
+  .compact-log-list {
+    max-height: 360px;
   }
 }
 
