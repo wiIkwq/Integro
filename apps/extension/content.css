@@ -87,21 +87,26 @@
   box-shadow: 0 0 14px rgba(124, 255, 155, 0.75);
 }
 
-.integro-command-row {
+.actions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
   padding: 2px 8px 12px 0;
 }
 
-.spotlight-card.action-card {
+.action-card {
+  border: 2px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: var(--shadow-small);
+}
+
+.action-card {
   position: relative;
   display: grid;
   min-height: 208px;
   align-content: stretch;
   overflow: hidden;
-  border: 2px solid var(--line);
-  border-radius: 0;
   background:
     radial-gradient(circle at 18% 10%, rgba(124, 255, 155, 0.16), transparent 30%),
     radial-gradient(circle at 86% 86%, rgba(255, 207, 107, 0.1), transparent 28%),
@@ -109,25 +114,29 @@
     var(--panel);
   background-position: center;
   background-size: cover;
-  box-shadow: 8px 8px 0 rgba(231, 244, 228, 0.82);
-  color: var(--ink);
-  isolation: isolate;
   transition: transform 0.28s ease, filter 0.28s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   animation: reveal-up 0.42s ease both;
   animation-delay: var(--reveal-delay, 0ms);
+  color: var(--ink);
+  isolation: isolate;
 }
 
-.spotlight-card.action-card.has-image {
+.action-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 rgba(231, 244, 228, 0.9);
+}
+
+.action-card.has-image {
   background-position: 42% center;
   background-size: 118% 118%;
 }
 
-.spotlight-card.action-card:hover {
+.action-card:hover {
   border-color: rgba(247, 251, 243, 0.95);
   filter: saturate(1.08);
 }
 
-.spotlight-card.action-card::after {
+.action-card::after {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -138,7 +147,7 @@
   pointer-events: none;
 }
 
-.spotlight-card.action-card::before {
+.action-card::before {
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -153,17 +162,17 @@
   transition: opacity 0.18s ease;
 }
 
-.spotlight-card.action-card:hover::before {
+.action-card:hover::before {
   opacity: 1;
 }
 
-.spotlight-card.action-card.has-image::after {
+.action-card.has-image::after {
   background:
     linear-gradient(180deg, rgba(7, 8, 7, 0.29), rgba(7, 8, 7, 0.66)),
     linear-gradient(90deg, rgba(7, 8, 7, 0.6), rgba(7, 8, 7, 0.14));
 }
 
-.spotlight-card.action-card > * {
+.action-card > * {
   position: relative;
   z-index: 1;
 }

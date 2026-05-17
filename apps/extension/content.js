@@ -188,11 +188,6 @@ function sentimentIcon(action) {
   return action.sentiment === "bad" ? iconSvg("thumbs-down", 16) : iconSvg("thumbs-up", 16);
 }
 
-function bridgeText() {
-  if (!state.user) return "Вход нужен";
-  return state.bridge?.connected ? "Bridge online" : "Стример оффлайн";
-}
-
 function renderBalance() {
   const mount = balanceMount();
   if (!mount) return;
@@ -226,7 +221,7 @@ function renderCommands() {
   const body = state.user
     ? `
       ${state.notice ? `<div class="integro-extension-notice">${safeText(state.notice)}</div>` : ""}
-      <div class="integro-command-row">
+      <section class="actions-grid">
         ${state.loading ? `<div class="integro-inline-state">Загрузка команд...</div>` : ""}
         ${!state.loading && state.actions.length === 0 ? `<div class="integro-inline-state">Команд пока нет</div>` : ""}
         ${state.actions.map((action, index) => {
@@ -260,7 +255,7 @@ function renderCommands() {
             </article>
           `;
         }).join("")}
-      </div>
+      </section>
     `
     : `
       <div class="integro-login-strip">
