@@ -37,7 +37,28 @@ async function broadcast(message) {
   await Promise.allSettled(tabs.map((tab) => chrome.tabs.sendMessage(tab.id, message)));
 }
 
+async function claimWebsiteSession() {
+  if (!chrome.cookies?.get) return null;
+  const cookie = await chrome.cookies.get({ url: API_BASE, name: "integro_session" });
+  if (!cookie?.value) return null;
+
+  const data = await api("/extension/session/claim", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "YouTube commands",
+      sessionToken: cookie.value
+    })
+  });
+
+  await chrome.storage.local.set({ integroToken: data.token, integroUser: data.user || null });
+  await broadcast({ type: "integro-auth-ready", user: data.user || null });
+  return { ok: true, user: data.user || null, claimed: true };
+}
+
 async function startLogin() {
+  const claimed = await claimWebsiteSession().catch(() => null);
+  if (claimed) return claimed;
+
   const started = await api("/extension/device/start", {
     method: "POST",
     body: JSON.stringify({ name: "YouTube overlay" })
@@ -77,7 +98,10 @@ async function logout() {
 
 async function session() {
   const { integroToken, integroUser } = await chrome.storage.local.get(["integroToken", "integroUser"]);
-  if (!integroToken) return { ok: true, user: null };
+  if (!integroToken) {
+    const claimed = await claimWebsiteSession().catch(() => null);
+    return claimed || { ok: true, user: null };
+  }
 
   try {
     const data = await authedApi("/extension/me");

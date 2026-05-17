@@ -29,6 +29,7 @@
     "https://integro.bohdan.lol/*"
   ],
   "permissions": [
+    "cookies",
     "storage",
     "tabs"
   ]

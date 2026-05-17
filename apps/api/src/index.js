@@ -297,6 +297,24 @@ app.post("/extension/device/start", async (c) => {
   return c.json(ok({ code, loginUrl, expiresAt, pollAfterMs: 2500 }));
 });
 
+app.post("/extension/session/claim", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const sessionToken = String(body.sessionToken || "").trim();
+  if (sessionToken.length < 32) return fail("Site session is required", "site_session_required", 401);
+
+  const user = await userFromSessionToken(c, sessionToken);
+  if (!user) return fail("Site session expired", "site_session_expired", 401);
+
+  const token = await createExtensionToken(
+    c,
+    user.id,
+    String(body.name || "YouTube extension").trim().slice(0, 80) || "YouTube extension",
+    String(c.req.header("User-Agent") || "").trim().slice(0, 240)
+  );
+
+  return c.json(ok({ token, user: publicUser(user) }));
+});
+
 app.get("/extension/link", async (c) => {
   const code = normalizeDeviceCode(c.req.query("code"));
   if (!code) return fail("Extension code is required", "invalid_extension_code", 400);
@@ -314,17 +332,10 @@ app.get("/extension/link", async (c) => {
     return linkResultPage("Код устарел", "Вернись на YouTube и нажми вход в панели Integro еще раз.", false);
   }
 
-  const token = randomToken();
-  const tokenHash = await sha256Hex(token);
-  const tokenId = crypto.randomUUID();
+  const token = await createExtensionToken(c, user.id, "YouTube extension", pending.user_agent);
   const now = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + 180 * 86400000).toISOString();
 
   await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO extension_tokens (id, user_id, token_hash, name, user_agent, created_at, last_used_at, expires_at)
-       VALUES (?, ?, ?, 'YouTube extension', ?, ?, ?, ?)`
-    ).bind(tokenId, user.id, tokenHash, pending.user_agent, now, now, expiresAt),
     c.env.DB.prepare(
       `UPDATE extension_device_codes
        SET status = 'approved', approved_user_id = ?, device_token = ?, approved_at = ?
@@ -1334,6 +1345,46 @@ async function extensionUser(c) {
     role: row.role,
     balance: row.balance
   };
+}
+
+async function userFromSessionToken(c, sessionToken) {
+  const tokenHash = await sha256Hex(sessionToken);
+  const row = await c.env.DB.prepare(
+    `SELECT users.id, users.email, users.name, users.avatar_url, users.role, users.balance
+     FROM sessions
+     JOIN users ON users.id = sessions.user_id
+     WHERE sessions.token_hash = ? AND sessions.expires_at > datetime('now')`
+  ).bind(tokenHash).first();
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    balance: row.balance
+  };
+}
+
+async function createExtensionToken(c, userId, name, userAgent) {
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 180 * 86400000).toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO extension_tokens (id, user_id, token_hash, name, user_agent, created_at, last_used_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    crypto.randomUUID(),
+    userId,
+    tokenHash,
+    name,
+    userAgent,
+    now,
+    now,
+    expiresAt
+  ).run();
+  return token;
 }
 
 function accountRole(env, email, existingRole = "") {

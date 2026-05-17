@@ -283,7 +283,7 @@ document.addEventListener("click", async (event) => {
 
   const action = target.dataset.integroAction;
   if (action === "login") {
-    state.notice = "Открыл сайт для входа";
+    state.notice = "Проверяю вход на сайте";
     renderCommands();
     const response = await send({ type: "integro-start-login" });
     if (response.ok) {
