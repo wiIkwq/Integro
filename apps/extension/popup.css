@@ -1,0 +1,41 @@
+body {
+  width: 280px;
+  margin: 0;
+  background: #070807;
+  color: #f7fbf3;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+main {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 2px solid #e7f4e4;
+}
+
+strong {
+  font-size: 18px;
+}
+
+p,
+span {
+  margin: 0;
+  color: #aeb8ad;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+button {
+  min-height: 38px;
+  border: 2px solid #e7f4e4;
+  background: #e7f4e4;
+  color: #070807;
+  cursor: pointer;
+  font-weight: 950;
+}
+
+#logout {
+  background: transparent;
+  color: #f7fbf3;
+}

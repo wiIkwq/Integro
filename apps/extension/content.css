@@ -1,0 +1,162 @@
+#integro-youtube-root {
+  position: fixed;
+  top: 92px;
+  right: 18px;
+  z-index: 2147483647;
+  width: min(330px, calc(100vw - 24px));
+  color: #f7fbf3;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: auto;
+}
+
+.integro-ext-panel {
+  border: 2px solid #e7f4e4;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(124, 255, 155, 0.16), transparent 32%),
+    rgba(7, 8, 7, 0.94);
+  box-shadow: 7px 7px 0 rgba(231, 244, 228, 0.74);
+  backdrop-filter: blur(16px);
+  padding: 12px;
+}
+
+.integro-ext-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.integro-ext-head strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.integro-ext-head span,
+.integro-ext-balance span,
+.integro-ext-action span,
+.integro-ext-copy {
+  color: #aeb8ad;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.integro-ext-head button,
+.integro-ext-action button,
+.integro-ext-login,
+.integro-ext-logout {
+  border: 2px solid #e7f4e4;
+  border-radius: 0;
+  background: #e7f4e4;
+  color: #070807;
+  cursor: pointer;
+  font-weight: 950;
+  box-shadow: 3px 3px 0 rgba(231, 244, 228, 0.45);
+}
+
+.integro-ext-head button {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+}
+
+.integro-ext-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 2px solid rgba(231, 244, 228, 0.42);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.integro-ext-balance strong {
+  color: #a7ffbc;
+  font-size: 16px;
+}
+
+.integro-ext-list {
+  display: grid;
+  max-height: min(520px, calc(100vh - 260px));
+  overflow: auto;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.integro-ext-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 2px solid rgba(231, 244, 228, 0.35);
+  background:
+    linear-gradient(135deg, rgba(124, 255, 155, 0.08), transparent 58%),
+    rgba(0, 0, 0, 0.34);
+}
+
+.integro-ext-action.bad {
+  background:
+    linear-gradient(135deg, rgba(255, 99, 138, 0.12), transparent 58%),
+    rgba(0, 0, 0, 0.34);
+}
+
+.integro-ext-action strong {
+  display: block;
+  overflow: hidden;
+  color: #f7fbf3;
+  font-size: 13px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.integro-ext-action button {
+  width: 42px;
+  height: 36px;
+}
+
+.integro-ext-action button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.integro-ext-notice,
+.integro-ext-empty {
+  margin-bottom: 10px;
+  padding: 8px 9px;
+  border: 2px solid rgba(231, 244, 228, 0.28);
+  background: rgba(231, 244, 228, 0.06);
+  color: #d9e5d8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.integro-ext-copy {
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.integro-ext-login,
+.integro-ext-logout {
+  width: 100%;
+  min-height: 40px;
+}
+
+.integro-ext-logout {
+  margin-top: 10px;
+  border-color: rgba(231, 244, 228, 0.42);
+  background: transparent;
+  color: #f7fbf3;
+}
+
+@media (max-width: 900px) {
+  #integro-youtube-root {
+    top: auto;
+    right: 12px;
+    bottom: 78px;
+    width: min(310px, calc(100vw - 24px));
+  }
+}

@@ -30,8 +30,9 @@ app.use("*", async (c, next) => {
     c.env.API_ORIGIN,
     ...String(c.env.LEGACY_WEB_ORIGINS || "").split(",").map((item) => item.trim())
   ].filter(Boolean);
+  const extensionOrigin = origin?.startsWith("chrome-extension://") || origin?.startsWith("opera-extension://");
   return cors({
-    origin: origin && allowed.includes(origin) ? origin : allowed[0] || "*",
+    origin: extensionOrigin ? origin : origin && allowed.includes(origin) ? origin : allowed[0] || "*",
     credentials: true,
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
@@ -274,7 +275,157 @@ app.get("/actions", async (c) => {
 
 app.post("/actions/:id/purchase", requireUser, async (c) => {
   const user = c.get("user");
-  const actionId = c.req.param("id");
+  const result = await purchaseActionForUser(c, user, c.req.param("id"));
+  if (result.error) return result.error;
+  return c.json(ok(result.data));
+});
+
+app.post("/extension/device/start", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const code = deviceCode();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const userAgent = String(c.req.header("User-Agent") || "").trim().slice(0, 240);
+
+  await c.env.DB.prepare(
+    `INSERT INTO extension_device_codes (id, code, status, user_agent, expires_at, created_at)
+     VALUES (?, ?, 'pending', ?, ?, ?)`
+  ).bind(id, code, userAgent, expiresAt, now).run();
+
+  const loginUrl = `${apiOrigin(c)}/extension/link?code=${encodeURIComponent(code)}`;
+  return c.json(ok({ code, loginUrl, expiresAt, pollAfterMs: 2500 }));
+});
+
+app.get("/extension/link", async (c) => {
+  const code = normalizeDeviceCode(c.req.query("code"));
+  if (!code) return fail("Extension code is required", "invalid_extension_code", 400);
+
+  const user = await currentUser(c);
+  const returnTo = `${apiOrigin(c)}/extension/link?code=${encodeURIComponent(code)}`;
+  if (!user) {
+    return c.redirect(`${apiOrigin(c)}/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  const pending = await c.env.DB.prepare(
+    "SELECT * FROM extension_device_codes WHERE code = ? AND status = 'pending'"
+  ).bind(code).first();
+  if (!pending || new Date(pending.expires_at) < new Date()) {
+    return linkResultPage("Код устарел", "Вернись на YouTube и нажми вход в панели Integro еще раз.", false);
+  }
+
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const tokenId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 180 * 86400000).toISOString();
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO extension_tokens (id, user_id, token_hash, name, user_agent, created_at, last_used_at, expires_at)
+       VALUES (?, ?, ?, 'YouTube extension', ?, ?, ?, ?)`
+    ).bind(tokenId, user.id, tokenHash, pending.user_agent, now, now, expiresAt),
+    c.env.DB.prepare(
+      `UPDATE extension_device_codes
+       SET status = 'approved', approved_user_id = ?, device_token = ?, approved_at = ?
+       WHERE id = ?`
+    ).bind(user.id, token, now, pending.id)
+  ]);
+
+  return linkResultPage("Расширение подключено", "Можешь вернуться на стрим YouTube. Панель Integro обновится автоматически.", true);
+});
+
+app.get("/extension/device/poll", async (c) => {
+  const code = normalizeDeviceCode(c.req.query("code"));
+  if (!code) return fail("Extension code is required", "invalid_extension_code", 400);
+  const row = await c.env.DB.prepare(
+    `SELECT extension_device_codes.*,
+            users.name AS user_name,
+            users.email AS user_email,
+            users.avatar_url AS avatar_url,
+            users.role AS user_role,
+            users.balance AS user_balance
+     FROM extension_device_codes
+     LEFT JOIN users ON users.id = extension_device_codes.approved_user_id
+     WHERE extension_device_codes.code = ?`
+  ).bind(code).first();
+
+  if (!row) return fail("Extension code not found", "not_found", 404);
+  if (new Date(row.expires_at) < new Date() && row.status === "pending") {
+    await c.env.DB.prepare("UPDATE extension_device_codes SET status = 'expired' WHERE id = ?").bind(row.id).run();
+    return c.json(ok({ status: "expired" }));
+  }
+  if (row.status === "approved" && row.device_token) {
+    await c.env.DB.prepare("UPDATE extension_device_codes SET device_token = NULL WHERE id = ?").bind(row.id).run();
+    return c.json(ok({
+      status: "approved",
+      token: row.device_token,
+      user: publicUser({
+        id: row.approved_user_id,
+        email: row.user_email,
+        name: row.user_name,
+        avatar_url: row.avatar_url,
+        role: row.user_role,
+        balance: row.user_balance
+      })
+    }));
+  }
+  return c.json(ok({ status: row.status, reason: row.denied_reason || null }));
+});
+
+app.get("/extension/me", async (c) => {
+  const user = await extensionUser(c);
+  if (!user) return fail("Extension login required", "extension_auth_required", 401);
+  return c.json(ok({ user: publicUser(user) }));
+});
+
+app.get("/extension/actions", async (c) => {
+  const user = await extensionUser(c);
+  if (!user) return fail("Extension login required", "extension_auth_required", 401);
+  const [rows, bridge] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT minecraft_actions.id,
+              minecraft_actions.title,
+              minecraft_actions.description,
+              minecraft_actions.price,
+              minecraft_actions.cooldown_seconds,
+              minecraft_actions.is_enabled,
+              minecraft_actions.sentiment,
+              minecraft_actions.command_plan,
+              minecraft_actions.command_mode,
+              minecraft_actions.repeat_count,
+              minecraft_actions.repeat_delay_ms,
+              minecraft_actions.step_delay_ms,
+              minecraft_actions.random_count,
+              minecraft_actions.banner_url
+       FROM minecraft_actions
+       WHERE minecraft_actions.is_enabled = 1 AND minecraft_actions.deleted_at IS NULL
+       ORDER BY minecraft_actions.created_at DESC`
+    ).all(),
+    bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false, sockets: 0, queued: 0 }))
+  ]);
+  return c.json(ok({ actions: mapActions(rows.results || []), bridge, user: publicUser(user) }));
+});
+
+app.post("/extension/actions/:id/purchase", async (c) => {
+  const user = await extensionUser(c);
+  if (!user) return fail("Extension login required", "extension_auth_required", 401);
+  const result = await purchaseActionForUser(c, user, c.req.param("id"));
+  if (result.error) return result.error;
+  return c.json(ok(result.data));
+});
+
+app.post("/extension/logout", async (c) => {
+  const tokenHash = await extensionTokenHash(c);
+  if (tokenHash) {
+    await c.env.DB.prepare("UPDATE extension_tokens SET revoked_at = ? WHERE token_hash = ?")
+      .bind(new Date().toISOString(), tokenHash)
+      .run();
+  }
+  return c.json(ok());
+});
+
+async function purchaseActionForUser(c, user, actionId) {
   const [action, bridge] = await Promise.all([
     c.env.DB.prepare(
       `SELECT minecraft_actions.*
@@ -284,8 +435,8 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
     bridgeFetch(c.env, "/status").then((response) => response.json()).catch(() => ({ connected: false }))
   ]);
 
-  if (!action) return fail("Action is not available", "action_unavailable", 404);
-  if (!bridge?.connected) return fail("Streamer is offline", "bridge_offline", 409);
+  if (!action) return { error: fail("Action is not available", "action_unavailable", 404) };
+  if (!bridge?.connected) return { error: fail("Streamer is offline", "bridge_offline", 409) };
 
   const purchaseId = crypto.randomUUID();
   const txId = crypto.randomUUID();
@@ -309,7 +460,7 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
   ]);
 
   if ((batch[0]?.meta?.changes || 0) !== 1) {
-    return fail("Not enough coins", "insufficient_balance", 409);
+    return { error: fail("Not enough coins", "insufficient_balance", 409) };
   }
 
   await bridgeFetch(c.env, "/dispatch", {
@@ -317,8 +468,8 @@ app.post("/actions/:id/purchase", requireUser, async (c) => {
     body: JSON.stringify({ purchaseId })
   });
 
-  return c.json(ok({ purchaseId }));
-});
+  return { data: { purchaseId, balance: Number(user.balance || 0) - purchasePrice } };
+}
 
 app.get("/me/transactions", requireUser, async (c) => {
   const user = c.get("user");
@@ -1152,6 +1303,39 @@ function requestIp(c) {
   return String(forwarded).split(",")[0].trim().slice(0, 80);
 }
 
+async function extensionTokenHash(c) {
+  const auth = String(c.req.header("Authorization") || "");
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match) return "";
+  return sha256Hex(match[1].trim());
+}
+
+async function extensionUser(c) {
+  const tokenHash = await extensionTokenHash(c);
+  if (!tokenHash) return null;
+  const row = await c.env.DB.prepare(
+    `SELECT users.id, users.email, users.name, users.avatar_url, users.role, users.balance,
+            extension_tokens.id AS token_id
+     FROM extension_tokens
+     JOIN users ON users.id = extension_tokens.user_id
+     WHERE extension_tokens.token_hash = ?
+       AND extension_tokens.revoked_at IS NULL
+       AND extension_tokens.expires_at > datetime('now')`
+  ).bind(tokenHash).first();
+  if (!row) return null;
+  await c.env.DB.prepare("UPDATE extension_tokens SET last_used_at = ? WHERE id = ?")
+    .bind(new Date().toISOString(), row.token_id)
+    .run();
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    balance: row.balance
+  };
+}
+
 function accountRole(env, email, existingRole = "") {
   const normalized = normalizeEmail(email);
   if (normalized === "bogdan3000tm@gmail.com") return "tester";
@@ -1373,13 +1557,17 @@ function normalizeDeviceCode(value) {
 }
 
 function bridgeLinkPage(title, message, success) {
+  return linkResultPage(title, message, success, "Integro Bridge");
+}
+
+function linkResultPage(title, message, success, pageTitle = "Integro") {
   const accent = success ? "#7cff9b" : "#ff638a";
   return new Response(`<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Integro Bridge</title>
+  <title>${escapeHtml(pageTitle)}</title>
   <style>
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #070807; color: #f7fbf3; font-family: Inter, system-ui, sans-serif; }
     main { width: min(520px, calc(100vw - 32px)); border: 2px solid #e7f4e4; background: #111411; padding: 28px; box-shadow: 8px 8px 0 #e7f4e4; }

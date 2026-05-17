@@ -18,7 +18,8 @@
       "/vouchers/*",
       "/admin/*",
       "/developer/*",
-      "/bridge/*"
+      "/bridge/*",
+      "/extension/*"
     ]
   },
   "routes": [
