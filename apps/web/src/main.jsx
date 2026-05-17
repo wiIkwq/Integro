@@ -188,32 +188,71 @@ async function cropBannerImage(crop) {
   return canvas.toDataURL("image/webp", 0.9);
 }
 
+function getDefaultBannerCropBox(imageWidth, imageHeight) {
+  const sourceWidth = Math.max(1, Number(imageWidth) || BANNER_WIDTH);
+  const sourceHeight = Math.max(1, Number(imageHeight) || BANNER_HEIGHT);
+  const targetAspect = BANNER_WIDTH / BANNER_HEIGHT;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const width = sourceAspect > targetAspect ? sourceHeight * targetAspect : sourceWidth;
+  const height = width / targetAspect;
+  return {
+    cropX: (sourceWidth - width) / 2,
+    cropY: (sourceHeight - height) / 2,
+    cropWidth: width,
+    cropHeight: height
+  };
+}
+
 function getBannerCropMetrics(crop, imageWidth = crop.width, imageHeight = crop.height) {
   const sourceWidth = Math.max(1, Number(imageWidth) || BANNER_WIDTH);
   const sourceHeight = Math.max(1, Number(imageHeight) || BANNER_HEIGHT);
-  const zoom = clamp(Number(crop.zoom || 1), 1, 3);
   const targetAspect = BANNER_WIDTH / BANNER_HEIGHT;
   const sourceAspect = sourceWidth / sourceHeight;
   const maxCropWidth = sourceAspect > targetAspect ? sourceHeight * targetAspect : sourceWidth;
-  const maxCropHeight = sourceAspect > targetAspect ? sourceHeight : sourceWidth / targetAspect;
-  const cropWidth = maxCropWidth / zoom;
-  const cropHeight = maxCropHeight / zoom;
-  const maxOffsetX = Math.max(0, (sourceWidth - cropWidth) / 2);
-  const maxOffsetY = Math.max(0, (sourceHeight - cropHeight) / 2);
-  const offsetX = clamp(Number(crop.offsetX || 0), -maxOffsetX, maxOffsetX);
-  const offsetY = clamp(Number(crop.offsetY || 0), -maxOffsetY, maxOffsetY);
-  const sourceX = (sourceWidth - cropWidth) / 2 + offsetX;
-  const sourceY = (sourceHeight - cropHeight) / 2 + offsetY;
+  const maxCropHeight = maxCropWidth / targetAspect;
+  const minCropWidth = Math.min(maxCropWidth, Math.max(96, maxCropWidth * 0.22));
+
+  let cropWidth = Number(crop.cropWidth);
+  let sourceX = Number(crop.cropX);
+  let sourceY = Number(crop.cropY);
+
+  if (!Number.isFinite(cropWidth) || cropWidth <= 0 || !Number.isFinite(sourceX) || !Number.isFinite(sourceY)) {
+    const zoom = clamp(Number(crop.zoom || 1), 1, 3);
+    cropWidth = maxCropWidth / zoom;
+    const cropHeight = cropWidth / targetAspect;
+    const maxOffsetX = Math.max(0, (sourceWidth - cropWidth) / 2);
+    const maxOffsetY = Math.max(0, (sourceHeight - cropHeight) / 2);
+    const offsetX = clamp(Number(crop.offsetX || 0), -maxOffsetX, maxOffsetX);
+    const offsetY = clamp(Number(crop.offsetY || 0), -maxOffsetY, maxOffsetY);
+    sourceX = (sourceWidth - cropWidth) / 2 + offsetX;
+    sourceY = (sourceHeight - cropHeight) / 2 + offsetY;
+  }
+
+  cropWidth = clamp(cropWidth, minCropWidth, maxCropWidth);
+  let cropHeight = cropWidth / targetAspect;
+
+  if (cropHeight > sourceHeight) {
+    cropHeight = Math.min(sourceHeight, maxCropHeight);
+    cropWidth = cropHeight * targetAspect;
+  }
+
+  sourceX = clamp(sourceX, 0, Math.max(0, sourceWidth - cropWidth));
+  sourceY = clamp(sourceY, 0, Math.max(0, sourceHeight - cropHeight));
+
   return {
-    zoom,
+    zoom: maxCropWidth / cropWidth,
     sourceWidth,
     sourceHeight,
     cropWidth,
     cropHeight,
     sourceX,
     sourceY,
-    offsetX,
-    offsetY
+    cropX: sourceX,
+    cropY: sourceY,
+    offsetX: sourceX - (sourceWidth - cropWidth) / 2,
+    offsetY: sourceY - (sourceHeight - cropHeight) / 2,
+    minCropWidth,
+    maxCropWidth
   };
 }
 
@@ -847,11 +886,9 @@ function AdminActions({ actions, refresh, setMessage }) {
       const image = await loadImage(source);
       setPendingBanner({
         source,
-        zoom: 1,
-        offsetX: 0,
-        offsetY: 0,
         width: image.naturalWidth,
-        height: image.naturalHeight
+        height: image.naturalHeight,
+        ...getDefaultBannerCropBox(image.naturalWidth, image.naturalHeight)
       });
     } catch (err) {
       setMessage(err.message);
@@ -1181,37 +1218,42 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
     width: `${cropWidth}%`,
     height: `${cropHeight}%`
   };
+  const cropHandles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
   function setClampedCrop(nextCrop) {
     const nextMetrics = getBannerCropMetrics(nextCrop);
     setCrop({
       ...nextCrop,
-      zoom: nextMetrics.zoom,
-      offsetX: nextMetrics.offsetX,
-      offsetY: nextMetrics.offsetY
+      cropX: nextMetrics.sourceX,
+      cropY: nextMetrics.sourceY,
+      cropWidth: nextMetrics.cropWidth,
+      cropHeight: nextMetrics.cropHeight,
+      zoom: nextMetrics.zoom
     });
   }
 
-  function setZoom(delta) {
-    setClampedCrop({ ...crop, zoom: Number(crop.zoom || 1) + delta });
-  }
-
   function resetCrop() {
-    setClampedCrop({ ...crop, zoom: 1, offsetX: 0, offsetY: 0 });
+    setClampedCrop({ ...crop, ...getDefaultBannerCropBox(metrics.sourceWidth, metrics.sourceHeight) });
   }
 
-  function handlePointerDown(event) {
+  function startCropDrag(event, mode, handle = "") {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
     dragRef.current = {
       pointerId: event.pointerId,
+      mode,
+      handle,
       startX: event.clientX,
       startY: event.clientY,
-      startOffsetX: metrics.offsetX,
-      startOffsetY: metrics.offsetY,
+      startCropX: metrics.sourceX,
+      startCropY: metrics.sourceY,
+      startCropWidth: metrics.cropWidth,
+      startCropHeight: metrics.cropHeight,
       rect
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   function handlePointerMove(event) {
@@ -1219,10 +1261,41 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const deltaX = ((event.clientX - drag.startX) / drag.rect.width) * metrics.sourceWidth;
     const deltaY = ((event.clientY - drag.startY) / drag.rect.height) * metrics.sourceHeight;
+    if (drag.mode === "move") {
+      setClampedCrop({
+        ...crop,
+        cropX: drag.startCropX + deltaX,
+        cropY: drag.startCropY + deltaY,
+        cropWidth: drag.startCropWidth,
+        cropHeight: drag.startCropHeight
+      });
+      return;
+    }
+
+    const aspect = BANNER_WIDTH / BANNER_HEIGHT;
+    const handle = drag.handle;
+    const horizontal = handle.includes("e") ? deltaX : handle.includes("w") ? -deltaX : 0;
+    const vertical = handle.includes("s") ? deltaY : handle.includes("n") ? -deltaY : 0;
+    const widthFromX = drag.startCropWidth + horizontal;
+    const widthFromY = (drag.startCropHeight + vertical) * aspect;
+    const nextWidth = handle.length === 1
+      ? (handle === "n" || handle === "s" ? widthFromY : widthFromX)
+      : (Math.abs(horizontal) > Math.abs(vertical * aspect) ? widthFromX : widthFromY);
+    const nextHeight = nextWidth / aspect;
+    let nextX = drag.startCropX;
+    let nextY = drag.startCropY;
+
+    if (handle.includes("w")) nextX = drag.startCropX + drag.startCropWidth - nextWidth;
+    if (!handle.includes("w") && !handle.includes("e")) nextX = drag.startCropX + (drag.startCropWidth - nextWidth) / 2;
+    if (handle.includes("n")) nextY = drag.startCropY + drag.startCropHeight - nextHeight;
+    if (!handle.includes("n") && !handle.includes("s")) nextY = drag.startCropY + (drag.startCropHeight - nextHeight) / 2;
+
     setClampedCrop({
       ...crop,
-      offsetX: drag.startOffsetX + deltaX,
-      offsetY: drag.startOffsetY + deltaY
+      cropX: nextX,
+      cropY: nextY,
+      cropWidth: nextWidth,
+      cropHeight: nextHeight
     });
   }
 
@@ -1248,7 +1321,6 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
           className="crop-stage"
           ref={stageRef}
           style={stageStyle}
-          onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
@@ -1258,19 +1330,31 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
           <div className="crop-shade" style={{ left: 0, top: `${cropTop + cropHeight}%`, width: "100%", height: `${cropBottom}%` }} aria-hidden="true" />
           <div className="crop-shade" style={{ left: 0, top: `${cropTop}%`, width: `${cropLeft}%`, height: `${cropHeight}%` }} aria-hidden="true" />
           <div className="crop-shade" style={{ left: `${cropLeft + cropWidth}%`, top: `${cropTop}%`, width: `${cropRight}%`, height: `${cropHeight}%` }} aria-hidden="true" />
-          <div className="crop-window" style={cropWindowStyle} aria-hidden="true">
+          <div
+            className="crop-window"
+            style={cropWindowStyle}
+            role="presentation"
+            onPointerDown={(event) => startCropDrag(event, "move")}
+          >
             <div className="crop-grid" />
+            {cropHandles.map((handle) => (
+              <button
+                className={`crop-handle crop-handle-${handle}`}
+                key={handle}
+                type="button"
+                aria-label="Изменить кадр"
+                onPointerDown={(event) => startCropDrag(event, "resize", handle)}
+              />
+            ))}
           </div>
         </div>
       </div>
       <div className="crop-toolbar">
-        <span>1280x720</span>
+        <span>Фиксированный формат 1280x720</span>
         <div>
-          <button className="secondary-action compact icon-only" type="button" onClick={() => setZoom(-0.08)} title="Уменьшить">-</button>
           <button className="secondary-action compact icon-only" type="button" onClick={resetCrop} title="Сбросить">
             <RefreshCcw size={15} />
           </button>
-          <button className="secondary-action compact icon-only" type="button" onClick={() => setZoom(0.08)} title="Увеличить">+</button>
         </div>
       </div>
       <div className="modal-actions">

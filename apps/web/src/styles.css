@@ -1636,6 +1636,10 @@ code {
   width: min(760px, 100%);
 }
 
+.crop-modal {
+  width: min(980px, 100%);
+}
+
 .modal-title-row {
   display: flex;
   align-items: flex-start;
@@ -1662,10 +1666,12 @@ code {
 
 .crop-stage-shell {
   width: 100%;
-  border: 2px solid var(--line);
-  background-color: var(--bg);
+  border: 2px solid rgba(231, 244, 228, 0.34);
+  background:
+    linear-gradient(135deg, rgba(247, 251, 243, 0.035), transparent 34%),
+    #090b09;
   box-shadow: var(--shadow-small);
-  padding: 12px;
+  padding: clamp(12px, 2.2vw, 24px);
   display: grid;
   place-items: center;
 }
@@ -1673,12 +1679,12 @@ code {
 .crop-stage {
   position: relative;
   aspect-ratio: var(--crop-aspect);
-  width: min(100%, calc(min(58vh, 520px) * var(--crop-aspect)));
+  width: min(100%, calc(min(58vh, 560px) * var(--crop-aspect)));
   max-width: 100%;
   overflow: hidden;
-  cursor: grab;
   touch-action: none;
   user-select: none;
+  box-shadow: inset 0 0 0 2px rgba(231, 244, 228, 0.1);
 }
 
 .crop-stage:active {
@@ -1697,27 +1703,25 @@ code {
 
 .crop-shade {
   position: absolute;
-  background: rgba(4, 5, 4, 0.58);
+  background: rgba(4, 5, 4, 0.66);
   pointer-events: none;
 }
 
 .crop-window {
   position: absolute;
-  border: 2px solid var(--line-strong);
+  border: 2px solid #edf7ea;
   box-shadow:
-    0 0 0 1px rgba(247, 251, 243, 0.28),
-    4px 4px 0 rgba(216, 230, 210, 0.38);
-  pointer-events: none;
+    0 0 0 1px rgba(7, 8, 7, 0.8),
+    0 0 28px rgba(124, 255, 155, 0.16),
+    4px 4px 0 rgba(216, 230, 210, 0.32);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .crop-window::before,
 .crop-window::after {
-  content: "";
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  border-color: var(--accent);
-  pointer-events: none;
+  display: none;
 }
 
 .crop-window::before {
@@ -1744,6 +1748,80 @@ code {
     linear-gradient(0deg, transparent calc(33.333% - 1px), rgba(247, 251, 243, 0.34) calc(33.333% - 1px), rgba(247, 251, 243, 0.34) calc(33.333% + 1px), transparent calc(33.333% + 1px)),
     linear-gradient(0deg, transparent calc(66.666% - 1px), rgba(247, 251, 243, 0.34) calc(66.666% - 1px), rgba(247, 251, 243, 0.34) calc(66.666% + 1px), transparent calc(66.666% + 1px));
   box-shadow: inset 0 0 0 1px rgba(247, 251, 243, 0.24);
+}
+
+.crop-handle {
+  position: absolute;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #f7fbf3;
+  box-shadow:
+    0 0 0 2px rgba(7, 8, 7, 0.9),
+    4px 4px 0 rgba(216, 230, 210, 0.32);
+  appearance: none;
+}
+
+.crop-handle:hover,
+.crop-handle:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+.crop-handle-nw {
+  top: -11px;
+  left: -11px;
+  cursor: nwse-resize;
+}
+
+.crop-handle-n {
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.crop-handle-ne {
+  top: -11px;
+  right: -11px;
+  cursor: nesw-resize;
+}
+
+.crop-handle-e {
+  top: 50%;
+  right: -11px;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.crop-handle-se {
+  right: -11px;
+  bottom: -11px;
+  cursor: nwse-resize;
+}
+
+.crop-handle-s {
+  bottom: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.crop-handle-sw {
+  bottom: -11px;
+  left: -11px;
+  cursor: nesw-resize;
+}
+
+.crop-handle-w {
+  top: 50%;
+  left: -11px;
+  transform: translateY(-50%);
+  cursor: ew-resize;
 }
 
 .crop-toolbar {
