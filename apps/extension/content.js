@@ -50,6 +50,42 @@ function safeText(value) {
   }[char]));
 }
 
+function safeCssUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.toString().replace(/['"\\]/g, "");
+  } catch {
+    return null;
+  }
+}
+
+function actionCardStyle(action, index) {
+  const parts = [`--reveal-delay: ${index * 35}ms`];
+  const bannerUrl = safeCssUrl(action.bannerUrl);
+  if (bannerUrl) parts.push(`background-image: url('${safeText(bannerUrl)}')`);
+  return ` style="${parts.join("; ")}"`;
+}
+
+function iconSvg(name, size = 16) {
+  const attrs = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+  if (name === "thumbs-down") {
+    return `<svg ${attrs}><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>`;
+  }
+  if (name === "gamepad") {
+    return `<svg ${attrs}><line x1="6" x2="10" y1="12" y2="12"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="15" x2="15.01" y1="13" y2="13"/><line x1="18" x2="18.01" y1="11" y2="11"/><rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 18v2"/><path d="M18 18v2"/></svg>`;
+  }
+  if (name === "zap") {
+    return `<svg ${attrs}><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2A.5.5 0 0 1 14 2.5V10h6a1 1 0 0 1 .78 1.63l-9.9 10.2A.5.5 0 0 1 10 21.5V14Z"/></svg>`;
+  }
+  if (name === "coins") {
+    return `<svg ${attrs}><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg>`;
+  }
+  return `<svg ${attrs}><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>`;
+}
+
 function send(message) {
   return new Promise((resolve) => {
     let settled = false;
@@ -149,7 +185,7 @@ function balanceMount() {
 }
 
 function sentimentIcon(action) {
-  return action.sentiment === "bad" ? "↓" : "↑";
+  return action.sentiment === "bad" ? iconSvg("thumbs-down", 16) : iconSvg("thumbs-up", 16);
 }
 
 function bridgeText() {
@@ -186,31 +222,44 @@ function renderCommands() {
   const mount = commandsMount();
   if (!mount) return;
 
-  const disabled = !state.bridge?.connected;
+  const streamerOffline = !state.bridge?.connected;
   const body = state.user
     ? `
-      <div class="integro-strip-head">
-        <div>
-          <strong>Integro</strong>
-          <span>${safeText(bridgeText())}</span>
-        </div>
-        ${state.notice ? `<p>${safeText(state.notice)}</p>` : ""}
-      </div>
+      ${state.notice ? `<div class="integro-extension-notice">${safeText(state.notice)}</div>` : ""}
       <div class="integro-command-row">
         ${state.loading ? `<div class="integro-inline-state">Загрузка команд...</div>` : ""}
         ${!state.loading && state.actions.length === 0 ? `<div class="integro-inline-state">Команд пока нет</div>` : ""}
-        ${state.actions.map((action) => `
-          <article class="integro-command-card ${action.sentiment === "bad" ? "is-bad" : "is-good"}">
-            <span class="integro-command-mark" title="${action.sentiment === "bad" ? "Плохая команда" : "Хорошая команда"}">${sentimentIcon(action)}</span>
-            <strong>${safeText(action.title)}</strong>
-            <div class="integro-command-footer">
-              <button data-integro-action="buy" data-id="${safeText(action.id)}" ${disabled || state.busyId === action.id ? "disabled" : ""}>
-                ${state.busyId === action.id ? "..." : "Донат"}
-              </button>
-              <span>${safeText(coinAmount(action.price))}</span>
-            </div>
-          </article>
-        `).join("")}
+        ${state.actions.map((action, index) => {
+          const lacksCoins = Number(state.user?.balance || 0) < Number(action.price || 0);
+          const isBusy = state.busyId === action.id;
+          const disabled = streamerOffline || lacksCoins || isBusy;
+          const buttonText = streamerOffline ? "Стример оффлайн" : isBusy ? "Отправляем" : lacksCoins ? "Не хватает монет" : "Запустить";
+          return `
+            <article class="spotlight-card action-card ${action.bannerUrl ? "has-image" : ""}"${actionCardStyle(action, index)}>
+              <span class="effect-mark ${action.sentiment === "bad" ? "bad" : "good"}" title="${action.sentiment === "bad" ? "Негативный эффект" : "Позитивный эффект"}">
+                ${sentimentIcon(action)}
+              </span>
+              ${action.bannerUrl ? "" : `<span class="action-bg-icon">${iconSvg("gamepad", 56)}</span>`}
+              <div class="action-body">
+                <div class="action-copy">
+                  <h3>${safeText(action.title)}</h3>
+                </div>
+                <div class="action-footer">
+                  <button class="shiny-button primary-action action-run" data-integro-action="buy" data-id="${safeText(action.id)}" ${disabled ? "disabled" : ""} type="button">
+                    ${iconSvg("zap", 17)}
+                    ${safeText(buttonText)}
+                  </button>
+                  <div class="price-inline">
+                    <span class="price-current">
+                      ${iconSvg("coins", 14)}
+                      <strong>${safeText(money(action.price))}</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          `;
+        }).join("")}
       </div>
     `
     : `
@@ -220,7 +269,10 @@ function renderCommands() {
           <span>Войди, чтобы видеть баланс и запускать команды прямо на стриме.</span>
         </div>
         ${state.notice ? `<p>${safeText(state.notice)}</p>` : ""}
-        <button data-integro-action="login">Войти</button>
+        <button class="shiny-button primary-action" data-integro-action="login" type="button">
+          ${iconSvg("zap", 17)}
+          Войти
+        </button>
       </div>
     `;
 
@@ -365,6 +417,14 @@ document.addEventListener("click", async (event) => {
   if (action === "buy") {
     await buyAction(target.dataset.id);
   }
+}, true);
+
+document.addEventListener("pointermove", (event) => {
+  const card = event.target instanceof Element ? event.target.closest(".spotlight-card") : null;
+  if (!card) return;
+  const rect = card.getBoundingClientRect();
+  card.style.setProperty("--spotlight-x", `${event.clientX - rect.left}px`);
+  card.style.setProperty("--spotlight-y", `${event.clientY - rect.top}px`);
 }, true);
 
 chrome.runtime.onMessage.addListener((message) => {

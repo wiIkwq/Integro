@@ -28,6 +28,17 @@
   "host_permissions": [
     "https://integro.bohdan.lol/*"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/minecraft.ttf"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*"
+      ]
+    }
+  ],
   "permissions": [
     "cookies",
     "storage",
