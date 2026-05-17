@@ -2,7 +2,7 @@ const CHANNEL_HANDLE = "@bebrok";
 const COMMANDS_ROOT_ID = "integro-youtube-commands";
 const BALANCE_ROOT_ID = "integro-youtube-balance";
 const MESSAGE_TIMEOUT_MS = 14000;
-const DEBUG = true;
+const DEBUG = globalThis.localStorage?.getItem("integro_debug") === "1";
 
 const state = {
   eligible: false,
@@ -140,8 +140,9 @@ function balanceMount() {
   }
 
   if (root.parentElement !== mastheadEnd) {
-    const avatar = mastheadEnd.querySelector("#avatar-btn, ytd-topbar-menu-button-renderer:last-child");
-    mastheadEnd.insertBefore(root, avatar || mastheadEnd.firstChild);
+    const directAvatarParent = mastheadEnd.querySelector("#avatar-btn")?.parentElement;
+    const before = directAvatarParent?.parentElement === mastheadEnd ? directAvatarParent : null;
+    mastheadEnd.insertBefore(root, before);
   }
 
   return root;
@@ -224,7 +225,11 @@ function renderCommands() {
     `;
 
   mount.innerHTML = body;
-  renderBalance();
+  try {
+    renderBalance();
+  } catch (error) {
+    log("warn", "Balance render failed", { error: error.message });
+  }
 }
 
 async function syncSession() {
@@ -303,6 +308,8 @@ async function buyAction(id) {
 async function checkPage() {
   const eligible = isEligiblePage();
   const changed = state.eligible !== eligible || state.lastUrl !== location.href;
+  const commandsMissing = !document.getElementById(COMMANDS_ROOT_ID);
+  const balanceMissing = !document.getElementById(BALANCE_ROOT_ID);
   if (changed) log("log", "Page eligibility changed", { eligible, url: location.href, channel: channelHandle() });
   state.eligible = eligible;
   state.lastUrl = location.href;
@@ -312,11 +319,14 @@ async function checkPage() {
     return;
   }
 
-  if (changed || !document.getElementById(COMMANDS_ROOT_ID) || !document.getElementById(BALANCE_ROOT_ID)) {
+  if (changed || commandsMissing) {
     await syncSession();
     await refreshData();
-  } else {
-    renderCommands();
+    return;
+  }
+
+  if (balanceMissing) {
+    renderBalance();
   }
 }
 

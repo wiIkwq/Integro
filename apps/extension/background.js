@@ -1,7 +1,7 @@
 const API_BASE = "https://integro.bohdan.lol";
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const API_TIMEOUT_MS = 12000;
-const DEBUG = true;
+const DEBUG = false;
 
 function log(level, message, data) {
   if (!DEBUG) return;
