@@ -1,6 +1,8 @@
 const CHANNEL_HANDLE = "@bebrok";
 const COMMANDS_ROOT_ID = "integro-youtube-commands";
 const BALANCE_ROOT_ID = "integro-youtube-balance";
+const MESSAGE_TIMEOUT_MS = 14000;
+const DEBUG = true;
 
 const state = {
   eligible: false,
@@ -10,8 +12,15 @@ const state = {
   loading: false,
   busyId: "",
   notice: "",
-  lastUrl: ""
+  lastUrl: "",
+  refreshId: 0
 };
+
+function log(level, message, data) {
+  if (!DEBUG) return;
+  const method = level === "error" ? "error" : level === "warn" ? "warn" : "log";
+  console[method](`[Integro extension:youtube] ${message}`, data || "");
+}
 
 function money(value) {
   return new Intl.NumberFormat("ru-RU").format(value || 0);
@@ -43,11 +52,25 @@ function safeText(value) {
 
 function send(message) {
   return new Promise((resolve) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      log("warn", "Message timeout", { type: message?.type });
+      resolve({ ok: false, error: "Расширение не ответило вовремя" });
+    }, MESSAGE_TIMEOUT_MS);
+
+    log("log", "Send message", { type: message?.type });
     chrome.runtime.sendMessage(message, (response) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
       if (chrome.runtime.lastError) {
+        log("error", "Message error", { type: message?.type, error: chrome.runtime.lastError.message });
         resolve({ ok: false, error: chrome.runtime.lastError.message });
         return;
       }
+      log("log", "Message response", { type: message?.type, ok: response?.ok });
       resolve(response || { ok: false, error: "Пустой ответ расширения" });
     });
   });
@@ -147,6 +170,13 @@ function renderBalance() {
 }
 
 function renderCommands() {
+  log("log", "Render commands", {
+    eligible: state.eligible,
+    hasUser: Boolean(state.user),
+    actions: state.actions.length,
+    loading: state.loading,
+    notice: state.notice
+  });
   if (!state.eligible) {
     removeInjectedUi();
     return;
@@ -198,38 +228,58 @@ function renderCommands() {
 }
 
 async function syncSession() {
+  log("log", "Sync session");
   const response = await send({ type: "integro-session" });
   if (response.ok) {
     state.user = response.user || null;
+    log("log", "Session synced", { hasUser: Boolean(state.user), user: state.user?.id });
     return;
   }
   state.user = null;
   state.notice = response.error || "Не удалось проверить вход";
+  log("warn", "Session failed", { error: state.notice });
 }
 
 async function refreshData() {
   if (!state.eligible || !state.user) {
+    state.loading = false;
     renderCommands();
     return;
   }
 
+  const refreshId = ++state.refreshId;
+  log("log", "Refresh data started", { refreshId });
   state.loading = true;
   renderCommands();
-  const response = await send({ type: "integro-actions" });
-  if (response.ok) {
-    state.actions = response.data?.actions || [];
-    state.bridge = response.data?.bridge || { connected: false };
-    state.user = response.data?.user || state.user;
-    state.notice = "";
-  } else {
-    if (/auth|войти/i.test(response.error || "")) state.user = null;
-    state.notice = response.error || "Не удалось загрузить команды";
+
+  try {
+    const response = await send({ type: "integro-actions" });
+    if (refreshId !== state.refreshId) {
+      log("warn", "Refresh data ignored because newer request exists", { refreshId, current: state.refreshId });
+      return;
+    }
+
+    if (response.ok) {
+      state.actions = response.data?.actions || [];
+      state.bridge = response.data?.bridge || { connected: false };
+      state.user = response.data?.user || state.user;
+      state.notice = "";
+      log("log", "Refresh data ok", { refreshId, actions: state.actions.length, bridge: state.bridge });
+    } else {
+      if (/auth|войти/i.test(response.error || "")) state.user = null;
+      state.notice = response.error || "Не удалось загрузить команды";
+      log("warn", "Refresh data failed", { refreshId, error: state.notice });
+    }
+  } finally {
+    if (refreshId === state.refreshId) {
+      state.loading = false;
+      renderCommands();
+    }
   }
-  state.loading = false;
-  renderCommands();
 }
 
 async function buyAction(id) {
+  log("log", "Buy action", { id });
   state.busyId = id;
   state.notice = "";
   renderCommands();
@@ -243,6 +293,7 @@ async function buyAction(id) {
     await refreshData();
   } else {
     state.notice = response.error || "Не удалось отправить команду";
+    log("warn", "Buy action failed", { id, error: state.notice });
   }
 
   state.busyId = "";
@@ -252,6 +303,7 @@ async function buyAction(id) {
 async function checkPage() {
   const eligible = isEligiblePage();
   const changed = state.eligible !== eligible || state.lastUrl !== location.href;
+  if (changed) log("log", "Page eligibility changed", { eligible, url: location.href, channel: channelHandle() });
   state.eligible = eligible;
   state.lastUrl = location.href;
 
