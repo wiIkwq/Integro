@@ -647,9 +647,15 @@ app.post("/admin/actions/:id/test", requireAdmin, async (c) => {
 });
 
 app.delete("/admin/actions/:id", requireAdmin, async (c) => {
-  await c.env.DB.prepare(
-    "UPDATE minecraft_actions SET is_enabled = 0, deleted_at = ?, updated_at = ? WHERE id = ?"
-  ).bind(new Date().toISOString(), new Date().toISOString(), c.req.param("id")).run();
+  const actionId = c.req.param("id");
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `DELETE FROM bridge_command_logs
+       WHERE purchase_id IN (SELECT id FROM action_purchases WHERE action_id = ?)`
+    ).bind(actionId),
+    c.env.DB.prepare("DELETE FROM action_purchases WHERE action_id = ?").bind(actionId),
+    c.env.DB.prepare("DELETE FROM minecraft_actions WHERE id = ?").bind(actionId)
+  ]);
   return c.json(ok());
 });
 
@@ -722,9 +728,10 @@ app.delete("/admin/vouchers/:id", requireAdmin, async (c) => {
   ).bind(c.req.param("id")).first();
   if (!existing) return fail("Voucher not found", "not_found", 404);
 
-  await c.env.DB.prepare(
-    "UPDATE vouchers SET is_active = 0, deleted_at = ?, updated_at = ? WHERE id = ?"
-  ).bind(new Date().toISOString(), new Date().toISOString(), existing.id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM voucher_redemptions WHERE voucher_id = ?").bind(existing.id),
+    c.env.DB.prepare("DELETE FROM vouchers WHERE id = ?").bind(existing.id)
+  ]);
   return c.json(ok());
 });
 
@@ -873,28 +880,29 @@ app.post("/developer/streamers", requireDeveloper, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   if (!email || !email.includes("@")) return fail("Email is required", "invalid_email", 400);
+  const role = normalizeRole(body.role) || "streamer";
   const name = String(body.name || email.split("@")[0]).trim().slice(0, 80);
   const existing = await c.env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
   const now = new Date().toISOString();
   const userId = existing?.id || crypto.randomUUID();
   if (existing) {
-    await c.env.DB.prepare("UPDATE users SET role = 'streamer', name = COALESCE(NULLIF(name, ''), ?), updated_at = ? WHERE id = ?")
-      .bind(name, now, existing.id)
+    await c.env.DB.prepare("UPDATE users SET role = ?, name = COALESCE(NULLIF(name, ''), ?), updated_at = ? WHERE id = ?")
+      .bind(role, name, now, existing.id)
       .run();
   } else {
     await c.env.DB.prepare(
       `INSERT INTO users (id, google_sub, email, name, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'streamer', ?, ?)`
-    ).bind(userId, `manual:${crypto.randomUUID()}`, email, name, now, now).run();
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(userId, `manual:${crypto.randomUUID()}`, email, name, role, now, now).run();
   }
   await logEvent(c.env, {
     level: "info",
-    source: "developer.streamers",
-    message: `Streamer added: ${email}`,
+    source: "developer.roles",
+    message: `Role assigned: ${email} -> ${role}`,
     userId: actor.id,
-    metadata: { targetUserId: userId, email }
+    metadata: { targetUserId: userId, email, role }
   });
-  return c.json(ok({ userId }));
+  return c.json(ok({ userId, role }));
 });
 
 app.post("/developer/users/:id/balance", requireDeveloper, async (c) => {
@@ -936,13 +944,11 @@ app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
 });
 
 app.delete("/developer/bridge-devices/:id", requireDeveloper, async (c) => {
-  await c.env.DB.prepare("UPDATE bridge_devices SET revoked_at = ? WHERE id = ?")
-    .bind(new Date().toISOString(), c.req.param("id"))
-    .run();
+  await c.env.DB.prepare("DELETE FROM bridge_devices WHERE id = ?").bind(c.req.param("id")).run();
   await logEvent(c.env, {
     level: "warn",
     source: "developer.bridge",
-    message: "Bridge device revoked",
+    message: "Bridge device deleted",
     userId: c.get("user").id,
     metadata: { deviceId: c.req.param("id") }
   });

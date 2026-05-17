@@ -247,6 +247,18 @@ a {
   animation: menu-pop 0.18s ease both;
 }
 
+.profile-popover .secondary-action:not(:disabled):hover,
+.profile-popover .icon-button:not(:disabled):hover,
+.user-modal .secondary-action:not(:disabled):hover,
+.user-modal .icon-button:not(:disabled):hover {
+  transform: none !important;
+}
+
+.profile-popover.spotlight-card::before,
+.user-modal.spotlight-card::before {
+  display: none;
+}
+
 .profile-popover-head {
   display: flex;
   align-items: center;
@@ -1378,50 +1390,76 @@ code {
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
 }
 
-.developer-user-row {
-  align-items: flex-start;
-}
-
-.developer-user-row > .user-line {
-  min-width: 260px;
-}
-
-.developer-users-panel {
-  min-width: 0;
-}
-
-.developer-controls,
-.balance-adjust-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.developer-controls {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.developer-controls > select {
-  width: 150px;
-}
-
-.balance-adjust-form select {
-  width: 120px;
-}
-
-.balance-adjust-form input {
-  width: 120px;
-}
-
-.balance-adjust-form input:nth-of-type(2) {
-  width: 180px;
-}
-
 .developer-add-form,
 .modal-balance-form {
   display: grid;
   gap: 12px;
+}
+
+.role-grant-panel {
+  min-width: 0;
+}
+
+.role-grant-form {
+  align-content: start;
+}
+
+.role-suggestions {
+  display: grid;
+  gap: 8px;
+}
+
+.role-suggestions button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 2px solid rgba(231, 244, 228, 0.38);
+  background:
+    linear-gradient(135deg, rgba(124, 255, 155, 0.06), transparent 48%),
+    rgba(7, 8, 7, 0.42);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.role-suggestions button:hover {
+  border-color: var(--accent);
+  background: rgba(124, 255, 155, 0.1);
+  transform: translateY(-1px);
+}
+
+.role-suggestions img,
+.role-suggestions svg {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.role-suggestions span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.role-suggestions strong,
+.role-suggestions small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-suggestions strong {
+  font-size: 13px;
+}
+
+.role-suggestions small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .developer-logs-panel {
@@ -1531,19 +1569,27 @@ code {
 
 .console-panel {
   background:
-    linear-gradient(180deg, rgba(124, 255, 155, 0.035), transparent 220px),
+    radial-gradient(circle at 18% 0%, rgba(124, 255, 155, 0.13), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 180px),
     #070907;
+  box-shadow:
+    0 0 0 1px rgba(231, 244, 228, 0.12),
+    8px 8px 0 rgba(231, 244, 228, 0.72);
 }
 
 .console-output {
   display: grid;
   max-height: 520px;
   overflow: auto;
-  border: 2px solid rgba(231, 244, 228, 0.32);
+  border: 2px solid rgba(231, 244, 228, 0.4);
   background:
+    linear-gradient(180deg, rgba(10, 14, 10, 0.88), rgba(2, 3, 2, 0.96)),
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 31px),
     #050705;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 0 42px rgba(124, 255, 155, 0.035);
 }
 
 .console-line {
@@ -1551,11 +1597,15 @@ code {
   grid-template-columns: 148px 76px 168px 148px minmax(220px, 1fr);
   gap: 10px;
   align-items: start;
-  padding: 9px 10px;
-  border-bottom: 1px solid rgba(231, 244, 228, 0.13);
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(231, 244, 228, 0.11);
   color: #dce9dc;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.console-line:hover {
+  background: rgba(124, 255, 155, 0.045);
 }
 
 .console-line:last-child {
@@ -1596,16 +1646,27 @@ code {
 }
 
 .console-level {
+  display: inline-flex;
+  width: max-content;
+  min-width: 58px;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid rgba(124, 255, 155, 0.36);
+  background: rgba(124, 255, 155, 0.08);
   color: var(--accent-strong);
   font-weight: 950;
   text-transform: uppercase;
 }
 
 .console-line.level-warn .console-level {
+  border-color: rgba(255, 207, 107, 0.42);
+  background: rgba(255, 207, 107, 0.08);
   color: var(--amber);
 }
 
 .console-line.level-error .console-level {
+  border-color: rgba(255, 92, 134, 0.42);
+  background: rgba(255, 92, 134, 0.08);
   color: var(--danger);
 }
 
@@ -1762,6 +1823,11 @@ code {
   animation: toast-in 0.18s ease both;
 }
 
+.crop-backdrop {
+  place-items: center;
+  padding: 18px;
+}
+
 .modal-lock {
   pointer-events: auto;
 }
@@ -1782,6 +1848,8 @@ code {
 
 .crop-modal {
   width: min(980px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
 }
 
 .modal-title-row {
@@ -2295,9 +2363,7 @@ code {
   .admin-row,
   .action-top,
   .row-actions,
-  .panel-title-split,
-  .developer-controls,
-  .balance-adjust-form {
+  .panel-title-split {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2306,15 +2372,7 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .developer-user-row > .user-line {
-    min-width: 0;
-  }
-
-  .developer-controls > select,
-  .log-filters select,
-  .balance-adjust-form select,
-  .balance-adjust-form input,
-  .balance-adjust-form input:nth-of-type(2) {
+  .log-filters select {
     width: 100%;
   }
 
@@ -2331,16 +2389,28 @@ code {
   }
 
   .viewer-bar-compact .voucher-strip {
-    width: 100%;
+    width: min(360px, 100%);
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
   }
 
   .input-with-button .secondary-action,
   .voucher-strip .primary-action,
   .developer-add-form .primary-action,
-  .balance-adjust-form .secondary-action,
   .row-actions .secondary-action,
   .row-actions .icon-button {
     width: 100%;
+  }
+
+  .viewer-bar-compact .voucher-strip .primary-action {
+    width: auto;
+    min-width: 52px;
+    padding-inline: 11px;
+  }
+
+  .viewer-bar-compact .voucher-strip input {
+    min-height: 40px;
   }
 
   .tabs {
@@ -2496,6 +2566,20 @@ code {
 
   .compact-log-list {
     max-height: 360px;
+  }
+
+  .viewer-bar-compact .voucher-strip {
+    width: min(320px, 100%);
+  }
+
+  .viewer-bar-compact .voucher-strip .primary-action {
+    min-width: 46px;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .viewer-bar-compact .voucher-strip .primary-action svg {
+    margin: 0;
   }
 
   .balance-editor {

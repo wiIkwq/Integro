@@ -1306,15 +1306,12 @@ function BannerCropModal({ crop, setCrop, onCancel, onApply }) {
   }
 
   return (
-    <ModalFrame onClose={onCancel} className="crop-modal" label="Кадрирование баннера">
+    <ModalFrame onClose={onCancel} className="crop-modal" backdropClassName="crop-backdrop" closeOnBackdrop={false} label="Кадрирование баннера">
       <div className="modal-title-row">
         <div>
           <h3>Кадрирование баннера</h3>
           <span>Формат как на карточке команды у зрителей</span>
         </div>
-        <button className="icon-button modal-close-inline" type="button" onClick={onCancel} title="Закрыть">
-          <X size={18} />
-        </button>
       </div>
       <div className="crop-stage-shell">
         <div
@@ -1397,10 +1394,10 @@ function CommandEditorModal({ value, index, onChange, onClose }) {
   );
 }
 
-function ModalFrame({ children, onClose, className = "", label }) {
+function ModalFrame({ children, onClose, className = "", backdropClassName = "", closeOnBackdrop = true, label }) {
   return (
-    <div className="modal-backdrop modal-lock" onClick={(event) => {
-      if (event.target === event.currentTarget) onClose();
+    <div className={`modal-backdrop modal-lock ${backdropClassName}`} onClick={(event) => {
+      if (closeOnBackdrop && event.target === event.currentTarget) onClose();
     }}>
       <SpotlightCard className={`user-modal ${className}`} role="dialog" aria-modal="true" aria-label={label}>
         {children}
@@ -1753,17 +1750,18 @@ function DeveloperPanel({ setMessage }) {
   const [devices, setDevices] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]);
   const [commandLogs, setCommandLogs] = useState([]);
-  const [query, setQuery] = useState("");
-  const [streamerForm, setStreamerForm] = useState({ email: "", name: "" });
+  const [roleForm, setRoleForm] = useState({ email: "", name: "", role: "streamer" });
   const [logFilters, setLogFilters] = useState({ source: "all", level: "all" });
   const [expandedDevice, setExpandedDevice] = useState("");
   const [busy, setBusy] = useState("");
 
-  const filteredUsers = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return users;
-    return users.filter((user) => `${user.name || ""} ${user.email || ""} ${user.role || ""}`.toLowerCase().includes(needle));
-  }, [query, users]);
+  const suggestedUsers = useMemo(() => {
+    const needle = roleForm.email.trim().toLowerCase();
+    if (!needle) return users.slice(0, 6);
+    return users
+      .filter((user) => `${user.email || ""} ${user.name || ""}`.toLowerCase().includes(needle))
+      .slice(0, 6);
+  }, [roleForm.email, users]);
 
   async function refresh() {
     const [nextUsers, nextDevices, nextSystemLogs, nextCommandLogs] = await Promise.all([
@@ -1782,26 +1780,13 @@ function DeveloperPanel({ setMessage }) {
     refresh().catch((err) => setMessage(err.message));
   }, [logFilters.source, logFilters.level]);
 
-  async function addStreamer(event) {
+  async function assignRole(event) {
     event.preventDefault();
     setBusy("add-streamer");
     try {
-      await api.addStreamer(streamerForm);
-      setMessage("Стример добавлен");
-      setStreamerForm({ email: "", name: "" });
-      await refresh();
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function updateRole(user, role) {
-    setBusy(`role:${user.id}`);
-    try {
-      await api.updateUserRole(user.id, role);
-      setMessage("Роль обновлена");
+      const result = await api.addStreamer(roleForm);
+      setMessage(`Роль обновлена: ${roleTitle({ role: result.role, email: roleForm.email })}`);
+      setRoleForm({ email: "", name: "", role: "streamer" });
       await refresh();
     } catch (err) {
       setMessage(err.message);
@@ -1825,72 +1810,65 @@ function DeveloperPanel({ setMessage }) {
 
   return (
     <section className="grid admin-grid developer-grid">
-      <section className="panel">
+      <section className="panel role-grant-panel">
         <div className="panel-title">
-          <Plus size={19} />
-          <h2>Добавить стримера</h2>
+          <Shield size={19} />
+          <h2>Выдать роль</h2>
         </div>
-        <form className="developer-add-form" onSubmit={addStreamer}>
+        <form className="developer-add-form role-grant-form" onSubmit={assignRole}>
           <label className="field">
             <span>Email Google</span>
             <input
               required
               type="email"
-              value={streamerForm.email}
-              onChange={(event) => setStreamerForm({ ...streamerForm, email: event.target.value })}
-              placeholder="streamer@gmail.com"
+              list="developer-email-suggestions"
+              value={roleForm.email}
+              onChange={(event) => setRoleForm({ ...roleForm, email: event.target.value })}
+              placeholder="user@gmail.com"
             />
+            <datalist id="developer-email-suggestions">
+              {users.map((user) => (
+                <option key={user.id} value={user.email}>{user.name || roleTitle(user)}</option>
+              ))}
+            </datalist>
           </label>
           <label className="field">
-            <span>Имя</span>
+            <span>Имя, если аккаунта еще нет</span>
             <input
-              value={streamerForm.name}
-              onChange={(event) => setStreamerForm({ ...streamerForm, name: event.target.value })}
+              value={roleForm.name}
+              onChange={(event) => setRoleForm({ ...roleForm, name: event.target.value })}
               placeholder="Можно оставить пустым"
             />
           </label>
+          <label className="field">
+            <span>Роль</span>
+            <select value={roleForm.role} onChange={(event) => setRoleForm({ ...roleForm, role: event.target.value })}>
+              <option value="user">Зритель</option>
+              <option value="tester">Тестер</option>
+              <option value="streamer">Стример</option>
+              <option value="developer">Разработчик</option>
+            </select>
+          </label>
+          <div className="role-suggestions" aria-label="Подсказки пользователей">
+            {suggestedUsers.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                onClick={() => setRoleForm({ email: user.email, name: user.name || "", role: user.role || "user" })}
+              >
+                {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={16} />}
+                <span>
+                  <strong>{user.email}</strong>
+                  <small>{user.name || "Без имени"} · {roleTitle(user)}</small>
+                </span>
+              </button>
+            ))}
+          </div>
           <ShinyButton className="primary-action compact" disabled={busy === "add-streamer"}>
             <Shield size={16} />
-            Выдать роль стримера
+            Сохранить роль
           </ShinyButton>
         </form>
-      </section>
-
-      <section className="panel developer-users-panel">
-        <div className="panel-title panel-title-split">
-          <div>
-            <Shield size={19} />
-            <h2>Панель разработчика</h2>
-          </div>
-          <label className="input-icon user-search">
-            <Search size={17} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя, email или роль" />
-          </label>
-        </div>
-        <div className="table-list">
-          {filteredUsers.length === 0 && <EmptyState icon={Search} title="Ничего не найдено" text="Проверь имя, email или выбранную роль." />}
-          {filteredUsers.map((user) => {
-            return (
-              <div className="admin-row developer-user-row" key={user.id}>
-                <div className="user-line">
-                  {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
-                  <div>
-                    <strong>{user.name || "Пользователь"}</strong>
-                    <span>{user.email} · {roleTitle(user)}</span>
-                  </div>
-                </div>
-                <div className="developer-controls">
-                  <select value={user.role} onChange={(event) => updateRole(user, event.target.value)} disabled={busy === `role:${user.id}`}>
-                    <option value="user">Зритель</option>
-                    <option value="tester">Тестер</option>
-                    <option value="streamer">Стример</option>
-                    <option value="developer">Разработчик</option>
-                  </select>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </section>
 
       <section className="panel">
@@ -1944,7 +1922,6 @@ function DeveloperPanel({ setMessage }) {
             <select value={logFilters.source} onChange={(event) => setLogFilters({ ...logFilters, source: event.target.value })}>
               <option value="all">Все источники</option>
               <option value="developer.roles">Роли</option>
-              <option value="developer.streamers">Стримеры</option>
               <option value="streamer_panel">Баланс стримера</option>
               <option value="developer.bridge">Bridge</option>
             </select>
