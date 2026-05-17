@@ -918,6 +918,8 @@ app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
             bridge_devices.java_version,
             bridge_devices.minecraft_user,
             bridge_devices.client_locale,
+            bridge_devices.ip_address,
+            bridge_devices.user_agent,
             bridge_devices.created_at,
             bridge_devices.last_seen_at,
             bridge_devices.revoked_at,
@@ -926,6 +928,7 @@ app.get("/developer/bridge-devices", requireDeveloper, async (c) => {
             users.role AS user_role
      FROM bridge_devices
      JOIN users ON users.id = bridge_devices.user_id
+     WHERE bridge_devices.revoked_at IS NULL
      ORDER BY COALESCE(bridge_devices.last_seen_at, bridge_devices.created_at) DESC
      LIMIT 200`
   ).all();
@@ -997,12 +1000,14 @@ app.post("/bridge/device/start", async (c) => {
   const javaVersion = String(body.javaVersion || "").trim().slice(0, 80);
   const minecraftUser = String(body.minecraftUser || "").trim().slice(0, 80);
   const clientLocale = String(body.clientLocale || "").trim().slice(0, 40);
+  const ipAddress = requestIp(c);
+  const userAgent = String(c.req.header("User-Agent") || "").trim().slice(0, 240);
 
   await c.env.DB.prepare(
     `INSERT INTO bridge_device_codes
      (id, code, device_name, mod_version, minecraft_version, computer_name, os_name,
-      os_version, java_version, minecraft_user, client_locale, status, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      os_version, java_version, minecraft_user, client_locale, ip_address, user_agent, status, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   ).bind(
     id,
     code,
@@ -1015,6 +1020,8 @@ app.post("/bridge/device/start", async (c) => {
     javaVersion,
     minecraftUser,
     clientLocale,
+    ipAddress,
+    userAgent,
     expiresAt,
     now
   ).run();
@@ -1054,8 +1061,8 @@ app.get("/bridge/link", async (c) => {
     c.env.DB.prepare(
       `INSERT INTO bridge_devices
        (id, user_id, token_hash, name, mod_version, minecraft_version, computer_name, os_name,
-        os_version, java_version, minecraft_user, client_locale, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        os_version, java_version, minecraft_user, client_locale, ip_address, user_agent, created_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       deviceId,
       user.id,
@@ -1069,6 +1076,8 @@ app.get("/bridge/link", async (c) => {
       pending.java_version,
       pending.minecraft_user,
       pending.client_locale,
+      pending.ip_address,
+      pending.user_agent,
       now,
       now
     ),
@@ -1128,6 +1137,13 @@ function apiOrigin(c) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function requestIp(c) {
+  const cfIp = c.req.header("CF-Connecting-IP") || c.req.header("cf-connecting-ip");
+  if (cfIp) return String(cfIp).trim().slice(0, 80);
+  const forwarded = c.req.header("X-Forwarded-For") || c.req.header("x-forwarded-for") || "";
+  return String(forwarded).split(",")[0].trim().slice(0, 80);
 }
 
 function accountRole(env, email, existingRole = "") {

@@ -1465,6 +1465,150 @@ code {
   font-size: 12px;
 }
 
+.balance-editor {
+  margin-top: 14px;
+  padding: 14px;
+  border: 2px solid rgba(231, 244, 228, 0.46);
+  background:
+    linear-gradient(135deg, rgba(124, 255, 155, 0.08), transparent 42%),
+    rgba(7, 8, 7, 0.42);
+}
+
+.balance-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.balance-mode-row button {
+  min-height: 38px;
+  border: 2px solid rgba(231, 244, 228, 0.55);
+  background: rgba(7, 8, 7, 0.5);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 950;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.balance-mode-row button:hover {
+  transform: translateY(-1px);
+}
+
+.balance-mode-row button.active {
+  border-color: var(--line);
+  background: var(--line);
+  color: #070807;
+  box-shadow: 4px 4px 0 var(--accent);
+}
+
+.balance-editor-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 160px);
+  align-items: end;
+  gap: 12px;
+  padding: 12px;
+  border: 2px solid rgba(231, 244, 228, 0.28);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.balance-editor-card strong,
+.balance-editor-card span {
+  display: block;
+}
+
+.balance-editor-card strong {
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.balance-editor-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.console-panel {
+  background:
+    linear-gradient(180deg, rgba(124, 255, 155, 0.035), transparent 220px),
+    #070907;
+}
+
+.console-output {
+  display: grid;
+  max-height: 520px;
+  overflow: auto;
+  border: 2px solid rgba(231, 244, 228, 0.32);
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 31px),
+    #050705;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.console-line {
+  display: grid;
+  grid-template-columns: 148px 76px 168px 148px minmax(220px, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(231, 244, 228, 0.13);
+  color: #dce9dc;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.console-line:last-child {
+  border-bottom: 0;
+}
+
+.console-line strong {
+  overflow-wrap: anywhere;
+  color: #f4fbef;
+  font-size: 12px;
+}
+
+.console-line small,
+.console-line code {
+  grid-column: 5 / -1;
+}
+
+.console-line small {
+  color: #c9d7cc;
+}
+
+.console-line code {
+  display: block;
+  max-width: none;
+  overflow: auto;
+  padding: 7px 8px;
+  border-left: 2px solid rgba(124, 255, 155, 0.42);
+  background: rgba(0, 0, 0, 0.26);
+  color: #b8c8ba;
+  white-space: pre-wrap;
+}
+
+.console-time,
+.console-source,
+.console-actor {
+  color: #8fa08f;
+  overflow-wrap: anywhere;
+}
+
+.console-level {
+  color: var(--accent-strong);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.console-line.level-warn .console-level {
+  color: var(--amber);
+}
+
+.console-line.level-error .console-level {
+  color: var(--danger);
+}
+
 .row-title {
   display: flex;
   flex-wrap: wrap;
@@ -2219,6 +2363,27 @@ code {
     grid-template-columns: 1fr 1fr;
   }
 
+  .balance-editor-card {
+    grid-template-columns: 1fr;
+  }
+
+  .console-output {
+    max-height: 420px;
+  }
+
+  .console-line {
+    grid-template-columns: 90px 70px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .console-source,
+  .console-actor,
+  .console-line strong,
+  .console-line small,
+  .console-line code {
+    grid-column: 1 / -1;
+  }
+
   .admin-row code {
     max-width: calc(100vw - 80px);
   }
@@ -2287,6 +2452,7 @@ code {
   .split-inputs,
   .mode-row,
   .command-field-row,
+  .balance-mode-row,
   .metrics,
   .metrics-wide,
   .profile-stats-grid,
@@ -2330,6 +2496,20 @@ code {
 
   .compact-log-list {
     max-height: 360px;
+  }
+
+  .balance-editor {
+    padding: 10px;
+  }
+
+  .console-line {
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .console-time,
+  .console-level {
+    grid-column: 1;
   }
 }
 

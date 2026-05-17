@@ -1572,7 +1572,7 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
 function AdminUsers({ users, refresh, setMessage }) {
   const [query, setQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
-  const [coinForm, setCoinForm] = useState({ amount: "", reason: "" });
+  const [coinForm, setCoinForm] = useState({ mode: "grant", amount: "", reason: "" });
   const [busy, setBusy] = useState(false);
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1617,19 +1617,21 @@ function AdminUsers({ users, refresh, setMessage }) {
           coinForm={coinForm}
           setCoinForm={setCoinForm}
           busy={busy}
-          onGrant={async (event) => {
+          onBalanceSubmit={async (event) => {
             event.preventDefault();
             setBusy(true);
             try {
               const result = await api.adjustViewerBalance(selectedUser.id, {
-                mode: "grant",
+                mode: coinForm.mode || "grant",
                 amount: Number(coinForm.amount || 0),
-                reason: coinForm.reason || "Выдача стримером"
+                reason: coinForm.reason || "Коррекция баланса стримером"
               });
-              setMessage(`Выдано: +${coinAmount(result.delta)}`);
-              setCoinForm({ amount: "", reason: "" });
+              const delta = Number(result.delta || 0);
+              const prefix = delta > 0 ? "+" : "";
+              setMessage(`Баланс обновлен: ${prefix}${coinAmount(delta)}`);
+              setCoinForm({ mode: "grant", amount: "", reason: "" });
               await refresh({ silent: true });
-              setSelectedUser((current) => current ? { ...current, balance: result.balance, totalReceived: Number(current.totalReceived || 0) + Number(result.delta || 0) } : current);
+              setSelectedUser((current) => current ? { ...current, balance: result.balance } : current);
             } catch (err) {
               setMessage(err.message);
             } finally {
@@ -1638,7 +1640,7 @@ function AdminUsers({ users, refresh, setMessage }) {
           }}
           onClose={() => {
             setSelectedUser(null);
-            setCoinForm({ amount: "", reason: "" });
+            setCoinForm({ mode: "grant", amount: "", reason: "" });
           }}
         />
       )}
@@ -1646,7 +1648,13 @@ function AdminUsers({ users, refresh, setMessage }) {
   );
 }
 
-function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onGrant, busy }) {
+function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onBalanceSubmit, busy }) {
+  const modeMeta = {
+    grant: { title: "Начислить монеты", button: "Начислить", hint: "Добавит монеты к текущему балансу." },
+    deduct: { title: "Списать монеты", button: "Списать", hint: "Уменьшит баланс пользователя." },
+    set: { title: "Установить баланс", button: "Установить", hint: "Заменит текущий баланс указанной суммой." }
+  };
+  const activeMode = modeMeta[coinForm.mode] || modeMeta.grant;
   return (
     <ModalFrame onClose={onClose} label="Профиль пользователя">
         <button className="icon-button modal-close" type="button" onClick={onClose} title="Закрыть">
@@ -1669,29 +1677,44 @@ function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onGrant, busy 
           <StatMini label="Донатов" value={user.purchasesCount || 0} />
         </div>
         {!canOpenStreamerPanel(user) && (
-          <form className="modal-balance-form" onSubmit={onGrant}>
-            <label className="field">
-              <span>Выдать монеты</span>
+          <form className="modal-balance-form balance-editor" onSubmit={onBalanceSubmit}>
+            <div className="balance-mode-row" role="group" aria-label="Режим изменения баланса">
+              {Object.entries(modeMeta).map(([mode, meta]) => (
+                <button
+                  className={coinForm.mode === mode ? "active" : ""}
+                  key={mode}
+                  type="button"
+                  onClick={() => setCoinForm({ ...coinForm, mode })}
+                >
+                  {meta.button}
+                </button>
+              ))}
+            </div>
+            <div className="balance-editor-card">
+              <div>
+                <strong>{activeMode.title}</strong>
+                <span>{activeMode.hint}</span>
+              </div>
               <input
                 required
                 type="number"
-                min="1"
+                min="0"
                 value={coinForm.amount}
                 onChange={(event) => setCoinForm({ ...coinForm, amount: event.target.value })}
-                placeholder="Сколько"
+                placeholder="Сумма"
               />
-            </label>
+            </div>
             <label className="field">
-              <span>Причина</span>
+              <span>Комментарий для логов</span>
               <input
                 value={coinForm.reason}
                 onChange={(event) => setCoinForm({ ...coinForm, reason: event.target.value })}
-                placeholder="Бонус, компенсация, тест"
+                placeholder="Бонус, компенсация, ручная правка"
               />
             </label>
             <ShinyButton className="primary-action compact" disabled={busy || !coinForm.amount}>
               <Coins size={16} />
-              Выдать
+              {activeMode.button}
             </ShinyButton>
           </form>
         )}
@@ -1735,7 +1758,6 @@ function DeveloperPanel({ setMessage }) {
   const [logFilters, setLogFilters] = useState({ source: "all", level: "all" });
   const [expandedDevice, setExpandedDevice] = useState("");
   const [busy, setBusy] = useState("");
-  const [balanceForms, setBalanceForms] = useState({});
 
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1788,26 +1810,6 @@ function DeveloperPanel({ setMessage }) {
     }
   }
 
-  async function adjustBalance(event, user) {
-    event.preventDefault();
-    const form = balanceForms[user.id] || { mode: "grant", amount: "", reason: "" };
-    setBusy(`balance:${user.id}`);
-    try {
-      const result = await api.adjustUserBalance(user.id, {
-        mode: form.mode || "grant",
-        amount: Number(form.amount || 0),
-        reason: form.reason || "Developer panel"
-      });
-      setMessage(`Баланс обновлен: ${coinAmount(result.balance)}`);
-      setBalanceForms((current) => ({ ...current, [user.id]: { mode: "grant", amount: "", reason: "" } }));
-      await refresh();
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setBusy("");
-    }
-  }
-
   async function revokeDevice(device) {
     setBusy(`device:${device.id}`);
     try {
@@ -1819,13 +1821,6 @@ function DeveloperPanel({ setMessage }) {
     } finally {
       setBusy("");
     }
-  }
-
-  function setBalanceForm(userId, patch) {
-    setBalanceForms((current) => ({
-      ...current,
-      [userId]: { mode: "grant", amount: "", reason: "", ...(current[userId] || {}), ...patch }
-    }));
   }
 
   return (
@@ -1875,14 +1870,13 @@ function DeveloperPanel({ setMessage }) {
         <div className="table-list">
           {filteredUsers.length === 0 && <EmptyState icon={Search} title="Ничего не найдено" text="Проверь имя, email или выбранную роль." />}
           {filteredUsers.map((user) => {
-            const form = balanceForms[user.id] || { mode: "grant", amount: "", reason: "" };
             return (
               <div className="admin-row developer-user-row" key={user.id}>
                 <div className="user-line">
                   {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
                   <div>
                     <strong>{user.name || "Пользователь"}</strong>
-                    <span>{user.email} · {coinAmount(user.balance)} · {roleTitle(user)}</span>
+                    <span>{user.email} · {roleTitle(user)}</span>
                   </div>
                 </div>
                 <div className="developer-controls">
@@ -1892,29 +1886,6 @@ function DeveloperPanel({ setMessage }) {
                     <option value="streamer">Стример</option>
                     <option value="developer">Разработчик</option>
                   </select>
-                  <form className="balance-adjust-form" onSubmit={(event) => adjustBalance(event, user)}>
-                    <select value={form.mode} onChange={(event) => setBalanceForm(user.id, { mode: event.target.value })}>
-                      <option value="grant">Выдать</option>
-                      <option value="deduct">Списать</option>
-                      <option value="set">Установить</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.amount}
-                      onChange={(event) => setBalanceForm(user.id, { amount: event.target.value })}
-                      placeholder="Монеты"
-                    />
-                    <input
-                      value={form.reason}
-                      onChange={(event) => setBalanceForm(user.id, { reason: event.target.value })}
-                      placeholder="Причина"
-                    />
-                    <button className="secondary-action compact" type="submit" disabled={busy === `balance:${user.id}`}>
-                      <Coins size={15} />
-                      OK
-                    </button>
-                  </form>
                 </div>
               </div>
             );
@@ -1944,6 +1915,8 @@ function DeveloperPanel({ setMessage }) {
                     <span>Java: {device.java_version || "не передана"}</span>
                     <span>Minecraft user: {device.minecraft_user || "не передан"}</span>
                     <span>Locale: {device.client_locale || "не передана"}</span>
+                    <span>IP: {device.ip_address || "не передан"}</span>
+                    <span>User-Agent: {device.user_agent || "не передан"}</span>
                   </div>
                 )}
               </div>
@@ -1961,18 +1934,17 @@ function DeveloperPanel({ setMessage }) {
         </div>
       </section>
 
-      <section className="panel developer-logs-panel">
+      <section className="panel developer-logs-panel console-panel">
         <div className="panel-title panel-title-split">
           <div>
             <Terminal size={19} />
-            <h2>Логи системы</h2>
+            <h2>Системная консоль</h2>
           </div>
           <div className="log-filters">
             <select value={logFilters.source} onChange={(event) => setLogFilters({ ...logFilters, source: event.target.value })}>
               <option value="all">Все источники</option>
               <option value="developer.roles">Роли</option>
               <option value="developer.streamers">Стримеры</option>
-              <option value="developer_panel">Баланс dev</option>
               <option value="streamer_panel">Баланс стримера</option>
               <option value="developer.bridge">Bridge</option>
             </select>
@@ -1982,37 +1954,49 @@ function DeveloperPanel({ setMessage }) {
               <option value="warn">Warn</option>
               <option value="error">Error</option>
             </select>
+            <button className="secondary-action compact" type="button" onClick={refresh} disabled={Boolean(busy)}>
+              <RefreshCcw size={15} />
+              Обновить
+            </button>
           </div>
         </div>
-        <div className="table-list compact-log-list">
+        <div className="console-output" role="log" aria-label="Системные логи">
           {systemLogs.length === 0 && <EmptyState icon={Terminal} title="Логов нет" text="События появятся после действий в панели." />}
           {systemLogs.map((log) => (
-            <div className="admin-row log-row" key={log.id}>
-              <div>
-                <strong>{log.message}</strong>
-                <span>{log.source} · {log.level} · {dateTime(log.createdAt)} · {log.userName || log.userEmail || "system"}</span>
-                <code>{JSON.stringify(log.metadata || {})}</code>
-              </div>
+            <div className={`console-line level-${log.level}`} key={log.id}>
+              <span className="console-time">{dateTime(log.createdAt)}</span>
+              <span className="console-level">{log.level}</span>
+              <span className="console-source">{log.source}</span>
+              <span className="console-actor">{log.userName || log.userEmail || "system"}</span>
+              <strong>{log.message}</strong>
+              <code>{JSON.stringify(log.metadata || {})}</code>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="panel developer-logs-panel">
-        <div className="panel-title">
-          <Zap size={19} />
-          <h2>Логи команд</h2>
+      <section className="panel developer-logs-panel console-panel">
+        <div className="panel-title panel-title-split">
+          <div>
+            <Zap size={19} />
+            <h2>Консоль команд</h2>
+          </div>
+          <button className="secondary-action compact" type="button" onClick={refresh} disabled={Boolean(busy)}>
+            <RefreshCcw size={15} />
+            Обновить
+          </button>
         </div>
-        <div className="table-list compact-log-list">
+        <div className="console-output" role="log" aria-label="Логи команд">
           {commandLogs.length === 0 && <EmptyState icon={Zap} title="Логов команд нет" text="Тесты и донаты появятся здесь после отправки в bridge." />}
           {commandLogs.map((log) => (
-            <div className="admin-row log-row" key={log.id}>
-              <div>
-                <strong>{log.actionTitle || "Команда"}</strong>
-                <span>{log.source} · {log.status} · {log.userName || "unknown"} · {dateTime(log.createdAt)}</span>
-                {log.message && <small className={log.status === "failed" ? "row-error" : ""}>{log.message}</small>}
-                <code>{(log.commands || []).map((step) => step.command).join(" | ")}</code>
-              </div>
+            <div className={`console-line level-${log.status === "failed" ? "error" : "info"}`} key={log.id}>
+              <span className="console-time">{dateTime(log.createdAt)}</span>
+              <span className="console-level">{log.status}</span>
+              <span className="console-source">{log.source}</span>
+              <span className="console-actor">{log.userName || "unknown"}</span>
+              <strong>{log.actionTitle || "Команда"}</strong>
+              {log.message && <small>{log.message}</small>}
+              <code>{(log.commands || []).map((step) => step.command).join(" | ")}</code>
             </div>
           ))}
         </div>
