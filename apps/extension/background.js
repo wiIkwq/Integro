@@ -3,17 +3,29 @@ const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {})
-    },
-    ...options
+    }
   });
   const payload = await response.json().catch(() => ({ ok: false, error: { message: "Bad API response" } }));
   if (!response.ok || payload.ok === false) {
     throw new Error(payload?.error?.message || "Request failed");
   }
   return payload.data;
+}
+
+async function authedApi(path, options = {}) {
+  const { integroToken } = await chrome.storage.local.get(["integroToken"]);
+  if (!integroToken) throw new Error("Нужно войти в Integro");
+  return api(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${integroToken}`,
+      ...(options.headers || {})
+    }
+  });
 }
 
 function wait(ms) {
@@ -63,7 +75,50 @@ async function logout() {
   return { ok: true };
 }
 
+async function session() {
+  const { integroToken, integroUser } = await chrome.storage.local.get(["integroToken", "integroUser"]);
+  if (!integroToken) return { ok: true, user: null };
+
+  try {
+    const data = await authedApi("/extension/me");
+    await chrome.storage.local.set({ integroUser: data.user || null });
+    return { ok: true, user: data.user || integroUser || null };
+  } catch (error) {
+    await chrome.storage.local.remove(["integroToken", "integroUser"]);
+    return { ok: true, user: null, expired: true };
+  }
+}
+
+async function actions() {
+  return authedApi("/extension/actions");
+}
+
+async function purchase(actionId) {
+  return authedApi(`/extension/actions/${encodeURIComponent(actionId)}/purchase`, { method: "POST" });
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "integro-session") {
+    session()
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "integro-actions") {
+    actions()
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "integro-purchase") {
+    purchase(message.actionId)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "integro-start-login") {
     startLogin()
       .then((result) => sendResponse(result))

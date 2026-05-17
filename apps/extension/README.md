@@ -1,6 +1,6 @@
 # Integro YouTube Overlay
 
-Chrome/Opera MV3 extension for showing Integro balance and Minecraft commands directly on YouTube live streams.
+Chrome/Opera MV3 extension for showing Integro balance and Minecraft commands directly inside YouTube live stream pages.
 
 ## Local install
 
@@ -10,4 +10,4 @@ Chrome/Opera MV3 extension for showing Integro balance and Minecraft commands di
 4. Select `apps/extension`.
 5. Open a live stream from `https://www.youtube.com/@bebrok`.
 
-The panel is intentionally hidden on other channels and non-live pages.
+Commands are inserted under the stream controls and above the description. The balance is inserted into the YouTube top bar. The UI is intentionally hidden on other channels and non-live pages.

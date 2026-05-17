@@ -1,18 +1,15 @@
-const API_BASE = "https://integro.bohdan.lol";
 const CHANNEL_HANDLE = "@bebrok";
-const ROOT_ID = "integro-youtube-root";
+const COMMANDS_ROOT_ID = "integro-youtube-commands";
+const BALANCE_ROOT_ID = "integro-youtube-balance";
 
 const state = {
-  visible: false,
   eligible: false,
-  token: "",
   user: null,
   actions: [],
   bridge: { connected: false },
   loading: false,
   busyId: "",
   notice: "",
-  collapsed: false,
   lastUrl: ""
 };
 
@@ -44,26 +41,16 @@ function safeText(value) {
   }[char]));
 }
 
-async function loadStoredAuth() {
-  const stored = await chrome.storage.local.get(["integroToken", "integroUser"]);
-  state.token = stored.integroToken || "";
-  state.user = stored.integroUser || null;
-}
-
-async function api(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
-      ...(options.headers || {})
-    },
-    ...options
+function send(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      resolve(response || { ok: false, error: "Пустой ответ расширения" });
+    });
   });
-  const payload = await response.json().catch(() => ({ ok: false, error: { message: "Bad API response" } }));
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload?.error?.message || "Request failed");
-  }
-  return payload.data;
 }
 
 function channelHandle() {
@@ -96,156 +83,214 @@ function isEligiblePage() {
   return channelHandle() === CHANNEL_HANDLE && isLiveStream();
 }
 
-function root() {
-  let node = document.getElementById(ROOT_ID);
-  if (!node) {
-    node = document.createElement("div");
-    node.id = ROOT_ID;
-    document.documentElement.appendChild(node);
+function removeInjectedUi() {
+  document.getElementById(COMMANDS_ROOT_ID)?.remove();
+  document.getElementById(BALANCE_ROOT_ID)?.remove();
+}
+
+function commandsMount() {
+  const topRow = document.querySelector("ytd-watch-metadata #top-row");
+  const metadata = document.querySelector("ytd-watch-metadata");
+  if (!topRow || !metadata) return null;
+
+  let root = document.getElementById(COMMANDS_ROOT_ID);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = COMMANDS_ROOT_ID;
   }
-  return node;
+
+  if (root.parentElement !== metadata || root.previousElementSibling !== topRow) {
+    topRow.insertAdjacentElement("afterend", root);
+  }
+
+  return root;
 }
 
-function removeRoot() {
-  document.getElementById(ROOT_ID)?.remove();
+function balanceMount() {
+  const mastheadEnd = document.querySelector("ytd-masthead #end");
+  if (!mastheadEnd) return null;
+
+  let root = document.getElementById(BALANCE_ROOT_ID);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = BALANCE_ROOT_ID;
+  }
+
+  if (root.parentElement !== mastheadEnd) {
+    const avatar = mastheadEnd.querySelector("#avatar-btn, ytd-topbar-menu-button-renderer:last-child");
+    mastheadEnd.insertBefore(root, avatar || mastheadEnd.firstChild);
+  }
+
+  return root;
 }
 
-function statusLabel() {
-  if (!state.token) return "Вход нужен";
+function sentimentIcon(action) {
+  return action.sentiment === "bad" ? "↓" : "↑";
+}
+
+function bridgeText() {
+  if (!state.user) return "Вход нужен";
   return state.bridge?.connected ? "Bridge online" : "Стример оффлайн";
 }
 
-function render() {
+function renderBalance() {
+  const mount = balanceMount();
+  if (!mount) return;
+
+  const label = state.user ? coinAmount(state.user.balance || 0) : "Integro";
+  mount.innerHTML = `
+    <button class="integro-top-balance" data-integro-action="${state.user ? "refresh" : "login"}" title="${state.user ? "Обновить баланс" : "Войти в Integro"}">
+      <span class="integro-top-dot"></span>
+      <strong>${safeText(label)}</strong>
+    </button>
+  `;
+}
+
+function renderCommands() {
   if (!state.eligible) {
-    removeRoot();
+    removeInjectedUi();
     return;
   }
 
-  const node = root();
+  const mount = commandsMount();
+  if (!mount) return;
+
   const disabled = !state.bridge?.connected;
-  const content = state.token
+  const body = state.user
     ? `
-      <div class="integro-ext-head">
+      <div class="integro-strip-head">
         <div>
           <strong>Integro</strong>
-          <span>${safeText(statusLabel())}</span>
+          <span>${safeText(bridgeText())}</span>
         </div>
-        <button data-action="collapse" title="Свернуть">${state.collapsed ? "□" : "–"}</button>
+        ${state.notice ? `<p>${safeText(state.notice)}</p>` : ""}
       </div>
-      ${state.collapsed ? "" : `
-        <div class="integro-ext-balance">
-          <span>Баланс</span>
-          <strong>${coinAmount(state.user?.balance || 0)}</strong>
-        </div>
-        ${state.notice ? `<div class="integro-ext-notice">${safeText(state.notice)}</div>` : ""}
-        <div class="integro-ext-list">
-          ${state.loading ? `<div class="integro-ext-empty">Загрузка...</div>` : ""}
-          ${!state.loading && state.actions.length === 0 ? `<div class="integro-ext-empty">Команд пока нет</div>` : ""}
-          ${state.actions.map((action) => `
-            <article class="integro-ext-action ${action.sentiment === "bad" ? "bad" : "good"}">
-              <div>
-                <strong>${safeText(action.title)}</strong>
-                <span>${coinAmount(action.price)}</span>
-              </div>
-              <button data-action="buy" data-id="${safeText(action.id)}" ${disabled || state.busyId === action.id ? "disabled" : ""}>
-                ${state.busyId === action.id ? "..." : "▶"}
+      <div class="integro-command-row">
+        ${state.loading ? `<div class="integro-inline-state">Загрузка команд...</div>` : ""}
+        ${!state.loading && state.actions.length === 0 ? `<div class="integro-inline-state">Команд пока нет</div>` : ""}
+        ${state.actions.map((action) => `
+          <article class="integro-command-card ${action.sentiment === "bad" ? "is-bad" : "is-good"}">
+            <span class="integro-command-mark" title="${action.sentiment === "bad" ? "Плохая команда" : "Хорошая команда"}">${sentimentIcon(action)}</span>
+            <strong>${safeText(action.title)}</strong>
+            <div class="integro-command-footer">
+              <button data-integro-action="buy" data-id="${safeText(action.id)}" ${disabled || state.busyId === action.id ? "disabled" : ""}>
+                ${state.busyId === action.id ? "..." : "Донат"}
               </button>
-            </article>
-          `).join("")}
-        </div>
-        <button class="integro-ext-logout" data-action="logout">Выйти</button>
-      `}
+              <span>${safeText(coinAmount(action.price))}</span>
+            </div>
+          </article>
+        `).join("")}
+      </div>
     `
     : `
-      <div class="integro-ext-head">
+      <div class="integro-login-strip">
         <div>
-          <strong>Integro</strong>
-          <span>@bebrok live</span>
+          <strong>Integro команды</strong>
+          <span>Войди, чтобы видеть баланс и запускать команды прямо на стриме.</span>
         </div>
+        ${state.notice ? `<p>${safeText(state.notice)}</p>` : ""}
+        <button data-integro-action="login">Войти</button>
       </div>
-      <p class="integro-ext-copy">Войди через сайт, чтобы видеть баланс и запускать команды прямо на стриме.</p>
-      ${state.notice ? `<div class="integro-ext-notice">${safeText(state.notice)}</div>` : ""}
-      <button class="integro-ext-login" data-action="login">Войти</button>
     `;
 
-  node.innerHTML = `<aside class="integro-ext-panel">${content}</aside>`;
+  mount.innerHTML = body;
+  renderBalance();
+}
+
+async function syncSession() {
+  const response = await send({ type: "integro-session" });
+  if (response.ok) {
+    state.user = response.user || null;
+    return;
+  }
+  state.user = null;
+  state.notice = response.error || "Не удалось проверить вход";
 }
 
 async function refreshData() {
-  if (!state.token || !state.eligible) return;
-  state.loading = true;
-  render();
-  try {
-    const data = await api("/extension/actions");
-    state.actions = data.actions || [];
-    state.bridge = data.bridge || { connected: false };
-    state.user = data.user || state.user;
-    await chrome.storage.local.set({ integroUser: state.user });
-  } catch (error) {
-    if (/auth/i.test(error.message)) {
-      state.token = "";
-      state.user = null;
-      await chrome.storage.local.remove(["integroToken", "integroUser"]);
-    }
-    state.notice = error.message;
-  } finally {
-    state.loading = false;
-    render();
+  if (!state.eligible || !state.user) {
+    renderCommands();
+    return;
   }
+
+  state.loading = true;
+  renderCommands();
+  const response = await send({ type: "integro-actions" });
+  if (response.ok) {
+    state.actions = response.data?.actions || [];
+    state.bridge = response.data?.bridge || { connected: false };
+    state.user = response.data?.user || state.user;
+    state.notice = "";
+  } else {
+    if (/auth|войти/i.test(response.error || "")) state.user = null;
+    state.notice = response.error || "Не удалось загрузить команды";
+  }
+  state.loading = false;
+  renderCommands();
 }
 
 async function buyAction(id) {
   state.busyId = id;
   state.notice = "";
-  render();
-  try {
-    const result = await api(`/extension/actions/${encodeURIComponent(id)}/purchase`, { method: "POST" });
+  renderCommands();
+
+  const response = await send({ type: "integro-purchase", actionId: id });
+  if (response.ok) {
     state.notice = "Команда отправлена";
-    if (typeof result.balance === "number") {
-      state.user = { ...state.user, balance: result.balance };
-      await chrome.storage.local.set({ integroUser: state.user });
+    if (typeof response.data?.balance === "number") {
+      state.user = { ...state.user, balance: response.data.balance };
     }
     await refreshData();
-  } catch (error) {
-    state.notice = error.message;
-  } finally {
-    state.busyId = "";
-    render();
+  } else {
+    state.notice = response.error || "Не удалось отправить команду";
   }
+
+  state.busyId = "";
+  renderCommands();
 }
 
 async function checkPage() {
   const eligible = isEligiblePage();
-  if (state.eligible !== eligible || state.lastUrl !== location.href) {
-    state.eligible = eligible;
-    state.lastUrl = location.href;
-    state.notice = "";
-    if (eligible) await refreshData();
-    render();
+  const changed = state.eligible !== eligible || state.lastUrl !== location.href;
+  state.eligible = eligible;
+  state.lastUrl = location.href;
+
+  if (!eligible) {
+    removeInjectedUi();
+    return;
+  }
+
+  if (changed || !document.getElementById(COMMANDS_ROOT_ID) || !document.getElementById(BALANCE_ROOT_ID)) {
+    await syncSession();
+    await refreshData();
+  } else {
+    renderCommands();
   }
 }
 
 document.addEventListener("click", async (event) => {
-  const target = event.target.closest(`#${ROOT_ID} [data-action]`);
+  const target = event.target.closest("[data-integro-action]");
   if (!target) return;
-  const action = target.dataset.action;
-  if (action === "collapse") {
-    state.collapsed = !state.collapsed;
-    render();
-  }
+
+  const action = target.dataset.integroAction;
   if (action === "login") {
     state.notice = "Открыл сайт для входа";
-    render();
-    chrome.runtime.sendMessage({ type: "integro-start-login" }, (response) => {
-      if (response?.ok === false) {
-        state.notice = response.error || "Не удалось войти";
-        render();
-      }
-    });
+    renderCommands();
+    const response = await send({ type: "integro-start-login" });
+    if (response.ok) {
+      await syncSession();
+      await refreshData();
+    } else {
+      state.notice = response.error || "Не удалось войти";
+      renderCommands();
+    }
   }
-  if (action === "logout") {
-    chrome.runtime.sendMessage({ type: "integro-logout" });
+
+  if (action === "refresh") {
+    await syncSession();
+    await refreshData();
   }
+
   if (action === "buy") {
     await buyAction(target.dataset.id);
   }
@@ -253,30 +298,27 @@ document.addEventListener("click", async (event) => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "integro-auth-ready") {
-    loadStoredAuth().then(refreshData);
+    syncSession().then(refreshData);
   }
   if (message?.type === "integro-auth-logout") {
-    state.token = "";
     state.user = null;
     state.actions = [];
     state.notice = "Вы вышли";
-    render();
+    renderCommands();
   }
   if (message?.type === "integro-auth-pending") {
     state.notice = "Подтверди вход на сайте";
-    render();
+    renderCommands();
   }
 });
 
 let observerTimer = null;
 const observer = new MutationObserver(() => {
   window.clearTimeout(observerTimer);
-  observerTimer = window.setTimeout(checkPage, 400);
+  observerTimer = window.setTimeout(checkPage, 350);
 });
 
-loadStoredAuth().then(() => {
-  checkPage();
-  window.setInterval(checkPage, 2000);
-  window.setInterval(refreshData, 15000);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-});
+checkPage();
+window.setInterval(checkPage, 2000);
+window.setInterval(refreshData, 15000);
+observer.observe(document.documentElement, { childList: true, subtree: true });
