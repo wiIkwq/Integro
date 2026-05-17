@@ -13,7 +13,9 @@ const state = {
   busyId: "",
   notice: "",
   lastUrl: "",
-  refreshId: 0
+  refreshId: 0,
+  kindFilter: "all",
+  priceSort: "none"
 };
 
 function log(level, message, data) {
@@ -188,14 +190,21 @@ function sentimentIcon(action) {
   return action.sentiment === "bad" ? iconSvg("thumbs-down", 16) : iconSvg("thumbs-up", 16);
 }
 
+function visibleActions() {
+  const filtered = state.actions.filter((action) => state.kindFilter === "all" || action.sentiment === state.kindFilter);
+  if (state.priceSort === "asc") return [...filtered].sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
+  if (state.priceSort === "desc") return [...filtered].sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
+  return filtered;
+}
+
 function renderBalance() {
   const mount = balanceMount();
   if (!mount) return;
 
   const label = state.user ? coinAmount(state.user.balance || 0) : "Integro";
   mount.innerHTML = `
-    <button class="integro-top-balance" data-integro-action="${state.user ? "refresh" : "login"}" title="${state.user ? "Обновить баланс" : "Войти в Integro"}">
-      <span class="integro-top-dot"></span>
+    <button class="balance-chip integro-top-balance" data-integro-action="${state.user ? "refresh" : "login"}" title="${state.user ? "Обновить баланс" : "Войти в Integro"}">
+      ${state.user ? iconSvg("coins", 15) : iconSvg("zap", 15)}
       <strong>${safeText(label)}</strong>
     </button>
   `;
@@ -218,13 +227,32 @@ function renderCommands() {
   if (!mount) return;
 
   const streamerOffline = !state.bridge?.connected;
+  const nextActions = visibleActions();
   const body = state.user
     ? `
       ${state.notice ? `<div class="integro-extension-notice">${safeText(state.notice)}</div>` : ""}
+      <section class="sort-toolbar" aria-label="Сортировка команд">
+        <div class="segmented">
+          <button class="${state.kindFilter === "all" ? "active" : ""}" type="button" data-integro-action="filter-kind" data-value="all">Все</button>
+          <button class="${state.kindFilter === "good" ? "active" : ""}" type="button" data-integro-action="filter-kind" data-value="good">
+            ${iconSvg("thumbs-up", 15)}
+            Хорошие
+          </button>
+          <button class="${state.kindFilter === "bad" ? "active" : ""}" type="button" data-integro-action="filter-kind" data-value="bad">
+            ${iconSvg("thumbs-down", 15)}
+            Плохие
+          </button>
+        </div>
+        <div class="segmented">
+          <button class="${state.priceSort === "none" ? "active" : ""}" type="button" data-integro-action="sort-price" data-value="none">Сначала новые</button>
+          <button class="${state.priceSort === "asc" ? "active" : ""}" type="button" data-integro-action="sort-price" data-value="asc">Дешевле</button>
+          <button class="${state.priceSort === "desc" ? "active" : ""}" type="button" data-integro-action="sort-price" data-value="desc">Дороже</button>
+        </div>
+      </section>
       <section class="actions-grid">
         ${state.loading ? `<div class="integro-inline-state">Загрузка команд...</div>` : ""}
-        ${!state.loading && state.actions.length === 0 ? `<div class="integro-inline-state">Команд пока нет</div>` : ""}
-        ${state.actions.map((action, index) => {
+        ${!state.loading && nextActions.length === 0 ? `<div class="integro-inline-state">Команд пока нет</div>` : ""}
+        ${nextActions.map((action, index) => {
           const lacksCoins = Number(state.user?.balance || 0) < Number(action.price || 0);
           const isBusy = state.busyId === action.id;
           const disabled = streamerOffline || lacksCoins || isBusy;
@@ -407,6 +435,16 @@ document.addEventListener("click", async (event) => {
   if (action === "refresh") {
     await syncSession();
     await refreshData();
+  }
+
+  if (action === "filter-kind") {
+    state.kindFilter = target.dataset.value || "all";
+    renderCommands();
+  }
+
+  if (action === "sort-price") {
+    state.priceSort = target.dataset.value || "none";
+    renderCommands();
   }
 
   if (action === "buy") {
