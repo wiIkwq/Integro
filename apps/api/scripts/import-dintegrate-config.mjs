@@ -9,27 +9,29 @@ if (!inputPath) {
   process.exit(1);
 }
 
-const bytes = await readFile(inputPath);
-const text = new TextDecoder("windows-1251").decode(bytes);
-const rules = parseRules(text);
+async function main() {
+  const bytes = await readFile(inputPath);
+  const text = new TextDecoder("windows-1251").decode(bytes);
+  const rules = parseRules(text);
 
-if (rules.length === 0) {
-  console.error("No dintegrate rules found");
-  process.exit(1);
+  if (rules.length === 0) {
+    console.error("No dintegrate rules found");
+    process.exit(1);
+  }
+
+  const now = new Date().toISOString();
+  const sql = [
+    "-- Generated from dintegrate.cfg. DonatePay credentials are intentionally not imported.",
+    ...rules.map((rule) => actionSql(rule, now)),
+    ""
+  ].join("\n");
+
+  await writeFile(new URL(`../${outputPath}`, import.meta.url), sql, "utf8");
+
+  const commandsCount = rules.reduce((sum, rule) => sum + rule.steps.length, 0);
+  const delayedCount = rules.reduce((sum, rule) => sum + rule.steps.filter((step) => step.delayMs > 0).length, 0);
+  console.log(`Generated ${rules.length} actions, ${commandsCount} commands, ${delayedCount} delayed steps -> apps/api/${outputPath}`);
 }
-
-const now = new Date().toISOString();
-const sql = [
-  "-- Generated from dintegrate.cfg. DonatePay credentials are intentionally not imported.",
-  ...rules.map((rule) => actionSql(rule, now)),
-  ""
-].join("\n");
-
-await writeFile(new URL(`../${outputPath}`, import.meta.url), sql, "utf8");
-
-const commandsCount = rules.reduce((sum, rule) => sum + rule.steps.length, 0);
-const delayedCount = rules.reduce((sum, rule) => sum + rule.steps.filter((step) => step.delayMs > 0).length, 0);
-console.log(`Generated ${rules.length} actions, ${commandsCount} commands, ${delayedCount} delayed steps -> apps/api/${outputPath}`);
 
 function parseRules(source) {
   const records = new Map();
@@ -84,18 +86,116 @@ function normalizeRule(record) {
 
   if (steps.length === 0) return null;
 
+  const id = `dintegrate-rule-${record.index}`;
+  const override = ACTION_OVERRIDES[id] || {};
   const mode = String(record.mode || "all").toLowerCase() === "random" ? "random" : "sequence";
   return {
-    id: `dintegrate-rule-${record.index}`,
-    title: `Правило ${record.index} · ${price} ${coinWord(price)}`,
+    id,
+    title: override.title || `Правило ${record.index} · ${price} ${coinWord(price)}`,
     price,
     command: steps[0].command,
     steps,
     mode,
     randomCount: mode === "random" ? 1 : 1,
-    sentiment: inferSentiment(steps.map((step) => step.command))
+    sentiment: override.sentiment || inferSentiment(steps.map((step) => step.command))
   };
 }
+
+const ACTION_OVERRIDES = {
+  "dintegrate-rule-2": { title: "Золотые яблоки", sentiment: "good" },
+  "dintegrate-rule-3": { title: "Деликатесы", sentiment: "good" },
+  "dintegrate-rule-4": { title: "Золотая морковь", sentiment: "good" },
+  "dintegrate-rule-5": { title: "Тотем бессмертия", sentiment: "good" },
+  "dintegrate-rule-6": { title: "Топовый молот", sentiment: "good" },
+  "dintegrate-rule-7": { title: "Ударная ручная мина", sentiment: "good" },
+  "dintegrate-rule-8": { title: "Набор ресурсов", sentiment: "good" },
+  "dintegrate-rule-9": { title: "Пистолет Glock", sentiment: "good" },
+  "dintegrate-rule-10": { title: "Набор незеритовых инструментов", sentiment: "good" },
+  "dintegrate-rule-11": { title: "Механизм против паразитов (КДУ)", sentiment: "good" },
+  "dintegrate-rule-12": { title: "Лазерная туррель", sentiment: "good" },
+  "dintegrate-rule-13": { title: "Снайперская винтовка AWM", sentiment: "good" },
+  "dintegrate-rule-14": { title: "Автомат АК-47", sentiment: "good" },
+  "dintegrate-rule-15": { title: "Топовая броня", sentiment: "good" },
+  "dintegrate-rule-16": { title: "Набор брони из паразитов", sentiment: "good" },
+  "dintegrate-rule-17": { title: "Мега туррель", sentiment: "good" },
+  "dintegrate-rule-18": { title: "БМП-2", sentiment: "good" },
+  "dintegrate-rule-19": { title: "Вертолет Mi-28", sentiment: "good" },
+  "dintegrate-rule-20": { title: "Очистить мир от паразитов", sentiment: "good" },
+  "dintegrate-rule-21": { title: "Орда зомби", sentiment: "bad" },
+  "dintegrate-rule-22": { title: "Зараженные люди", sentiment: "bad" },
+  "dintegrate-rule-23": { title: "Крипер", sentiment: "bad" },
+  "dintegrate-rule-24": { title: "Мимики с артефактами", sentiment: "bad" },
+  "dintegrate-rule-25": { title: "Пачка паразитов", sentiment: "bad" },
+  "dintegrate-rule-26": { title: "Фауресы", sentiment: "bad" },
+  "dintegrate-rule-27": { title: "Пачка сильных паразитов", sentiment: "bad" },
+  "dintegrate-rule-28": { title: "Зомби боссы", sentiment: "bad" },
+  "dintegrate-rule-29": { title: "Споры с паразитами", sentiment: "bad" },
+  "dintegrate-rule-30": { title: "Орда невидимых криперов", sentiment: "bad" },
+  "dintegrate-rule-31": { title: "Убить всех", sentiment: "bad" },
+  "dintegrate-rule-32": { title: "C4 над моей головой", sentiment: "bad" },
+  "dintegrate-rule-33": { title: "Минометный обстрел", sentiment: "bad" },
+  "dintegrate-rule-34": { title: "Супер босс паразитов", sentiment: "bad" },
+  "dintegrate-rule-35": { title: "Куча паразитов дирижаблей", sentiment: "bad" },
+  "dintegrate-rule-36": { title: "Визер босс (очень сильный)", sentiment: "bad" },
+  "dintegrate-rule-37": { title: "Призвать орду варденов", sentiment: "bad" },
+  "dintegrate-rule-38": { title: "C4 над головой у всех", sentiment: "bad" },
+  "dintegrate-rule-39": { title: "Очистить инвентари", sentiment: "bad" },
+  "dintegrate-rule-40": { title: "Телепортация под бедрок", sentiment: "bad" },
+  "dintegrate-rule-41": { title: "Авиабомбы", sentiment: "bad" },
+  "dintegrate-rule-42": { title: "Минометный босс паразитов", sentiment: "bad" },
+  "dintegrate-rule-43": { title: "Реактивный ранец", sentiment: "good" },
+  "dintegrate-rule-44": { title: "Винтовка МК14", sentiment: "good" },
+  "dintegrate-rule-46": { title: "Миниган", sentiment: "good" },
+  "dintegrate-rule-47": { title: "СВД", sentiment: "good" },
+  "dintegrate-rule-48": { title: "Лабораторные блоки", sentiment: "good" },
+  "dintegrate-rule-49": { title: "Обсидиан", sentiment: "good" },
+  "dintegrate-rule-50": { title: "Ударить молнией всех", sentiment: "bad" },
+  "dintegrate-rule-51": { title: "Ватердроп", sentiment: "bad" },
+  "dintegrate-rule-52": { title: "ТП в край", sentiment: "bad" },
+  "dintegrate-rule-53": { title: "Коробка из лавы", sentiment: "bad" },
+  "dintegrate-rule-54": { title: "Набор механизмов", sentiment: "good" },
+  "dintegrate-rule-55": { title: "Цифровой шахтер", sentiment: "good" },
+  "dintegrate-rule-56": { title: "Танк YX100", sentiment: "good" },
+  "dintegrate-rule-57": { title: "Дроны с гранатами", sentiment: "good" },
+  "dintegrate-rule-58": { title: "Телепортировать всех в шахту", sentiment: "bad" },
+  "dintegrate-rule-59": { title: "Телепортировать все с карты ко мне", sentiment: "bad" },
+  "dintegrate-rule-60": { title: "Лудокейсы", sentiment: "good" },
+  "dintegrate-rule-61": { title: "100 лудокейсов", sentiment: "good" },
+  "dintegrate-rule-62": { title: "Прото разум", sentiment: "bad" },
+  "dintegrate-rule-63": { title: "МЕ система", sentiment: "good" },
+  "dintegrate-rule-64": { title: "Арбузные бомбы у всех", sentiment: "bad" },
+  "dintegrate-rule-65": { title: "Летающая тележка", sentiment: "good" },
+  "dintegrate-rule-66": { title: "Мега ракеты на всех", sentiment: "bad" },
+  "dintegrate-rule-67": { title: "Уничтожение карты ракетами", sentiment: "bad" },
+  "dintegrate-rule-68": { title: "Нано лук \"Боцек\"", sentiment: "good" },
+  "dintegrate-rule-69": { title: "Пулемет \"Преданность\"", sentiment: "good" },
+  "dintegrate-rule-70": { title: "Револьвер \"Трахелиум\"", sentiment: "good" },
+  "dintegrate-rule-71": { title: "Снаряд миномета в случайного игрока", sentiment: "bad" },
+  "dintegrate-rule-73": { title: "Отравить случайного игрока", sentiment: "bad" },
+  "dintegrate-rule-74": { title: "Отравить всех игроков", sentiment: "bad" },
+  "dintegrate-rule-75": { title: "Задымить всех игроков", sentiment: "bad" },
+  "dintegrate-rule-76": { title: "Орда супер сильных паразитов", sentiment: "bad" },
+  "dintegrate-rule-77": { title: "Супер сильные паразиты на всех", sentiment: "bad" },
+  "dintegrate-rule-78": { title: "Босс паразитов червяк", sentiment: "bad" },
+  "dintegrate-rule-79": { title: "Набор топ туррелей", sentiment: "good" },
+  "dintegrate-rule-80": { title: "ТП всех в лаву под землю", sentiment: "bad" },
+  "dintegrate-rule-81": { title: "Все паразитические боссы (усиленные)", sentiment: "bad" },
+  "dintegrate-rule-84": { title: "ТП в шизокоробку с криперами", sentiment: "bad" },
+  "dintegrate-rule-85": { title: "Гранаты против паразитов", sentiment: "good" },
+  "dintegrate-rule-86": { title: "Фаршированная гадость", sentiment: "good" },
+  "dintegrate-rule-87": { title: "Бомбежка всех динамитом", sentiment: "bad" },
+  "dintegrate-rule-88": { title: "Жесткий разнос игроков, карты и всех остальных", sentiment: "bad" },
+  "dintegrate-rule-89": { title: "Пулемет M2HB", sentiment: "good" },
+  "dintegrate-rule-90": { title: "РПГ-7", sentiment: "good" },
+  "dintegrate-rule-91": { title: "Тяжелая снайперская винтовка NTW-20", sentiment: "good" },
+  "dintegrate-rule-92": { title: "Автоматические фермы железа", sentiment: "good" },
+  "dintegrate-rule-93": { title: "Набор для помощи механизаторам", sentiment: "good" },
+  "dintegrate-rule-94": { title: "4-звездочные боссы визеры", sentiment: "bad" },
+  "dintegrate-rule-95": { title: "Орда усиленных прото разумов (маяки)", sentiment: "bad" },
+  "dintegrate-rule-96": { title: "Обстрел РПГ ракетами всех", sentiment: "bad" },
+  "dintegrate-rule-98": { title: "Удочка Нептуна", sentiment: "good" },
+  "dintegrate-rule-99": { title: "Мега установка против паразитов", sentiment: "good" }
+};
 
 function parseDelayCommand(command) {
   const match = /^delay\s+([\d.,]+)$/i.exec(command.trim());
@@ -186,3 +286,5 @@ ON CONFLICT(id) DO UPDATE SET
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
+
+await main();
