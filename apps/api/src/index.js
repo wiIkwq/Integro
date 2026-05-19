@@ -1406,16 +1406,16 @@ function renderCommand(template, user) {
 }
 
 function renderCommandSteps(action, user) {
-  const commands = parseCommandPlan(action.command_plan, action.command);
+  const storedSteps = parseStoredCommandSteps(action.command_plan, action.command);
   const mode = normalizeCommandMode(action.command_mode || "sequence");
   const stepDelayMs = clampNumber(action.step_delay_ms || 0, 0, 600000);
-  const randomCount = clampNumber(action.random_count || 1, 1, commands.length || 1);
-  const currentCommands = mode === "random"
-    ? shuffle(commands).slice(0, randomCount)
-    : commands;
-  const steps = currentCommands.map((command, index) => ({
-    command: renderCommand(command, user),
-    delayMs: index === 0 ? 0 : stepDelayMs
+  const randomCount = clampNumber(action.random_count || 1, 1, storedSteps.length || 1);
+  const currentSteps = mode === "random"
+    ? shuffle(storedSteps).slice(0, randomCount)
+    : storedSteps;
+  const steps = currentSteps.map((step, index) => ({
+    command: renderCommand(step.command, user),
+    delayMs: step.delayMs > 0 ? step.delayMs : index === 0 ? 0 : stepDelayMs
   }));
 
   return steps.slice(0, 120);
@@ -1437,24 +1437,40 @@ function normalizeCommandPlan(commands, fallbackCommand) {
   const cleaned = rawCommands
     .map((command) => String(command || "").trim())
     .filter(Boolean)
-    .slice(0, 20)
-    .map((command) => command.slice(0, 400));
+    .slice(0, 120)
+    .map((command) => command.slice(0, 1000));
 
   if (cleaned.length === 0) throw new Error("command is required");
   return cleaned;
 }
 
 function parseCommandPlan(commandPlan, fallbackCommand) {
+  return parseStoredCommandSteps(commandPlan, fallbackCommand).map((step) => step.command);
+}
+
+function parseStoredCommandSteps(commandPlan, fallbackCommand) {
   try {
     const parsed = JSON.parse(commandPlan || "null");
     if (Array.isArray(parsed)) {
-      const cleaned = normalizeCommandPlan(parsed, "");
+      const cleaned = parsed
+        .map((step) => {
+          if (typeof step === "string") {
+            return { command: step.trim(), delayMs: 0 };
+          }
+          return {
+            command: String(step?.command || "").trim(),
+            delayMs: clampNumber(step?.delayMs || 0, 0, 600000)
+          };
+        })
+        .filter((step) => step.command)
+        .slice(0, 120)
+        .map((step) => ({ command: step.command.slice(0, 1000), delayMs: step.delayMs }));
       if (cleaned.length > 0) return cleaned;
     }
   } catch {
     // Old actions used a single command string.
   }
-  return normalizeCommandPlan(undefined, fallbackCommand);
+  return normalizeCommandPlan(undefined, fallbackCommand).map((command) => ({ command, delayMs: 0 }));
 }
 
 function normalizeCommandMode(value) {
