@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BadgeCheck,
+  BarChart3,
+  CalendarDays,
   ChevronDown,
   Chrome,
   Coins,
@@ -9,7 +11,6 @@ import {
   Eraser,
   Gamepad2,
   Gift,
-  Image,
   Loader2,
   LogOut,
   Maximize2,
@@ -36,6 +37,20 @@ import {
   X,
   Zap
 } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
 import { api } from "./api";
 import { AnimatedPanel, PixelSnow, ShinyButton, SpotlightCard } from "./components/Bits";
 import "./styles.css";
@@ -43,9 +58,8 @@ import "./styles.css";
 function emptyActionForm() {
   return {
     title: "",
-    description: "",
     price: 100,
-    commands: ["say {user} активировал интерактив"],
+    commands: [""],
     commandMode: "sequence",
     sentiment: "good",
     stepDelaySeconds: 0,
@@ -112,18 +126,71 @@ function msLabel(ms) {
   return `${value / 1000} сек`;
 }
 
-function generateVoucherCode() {
-  return `LIVE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const KEYBOARD_RU = "ёйцукенгшщзхъфывапролджэячсмитьбю";
+const KEYBOARD_EN = "`qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+
+function switchKeyboardLayout(value) {
+  const lower = String(value || "").toLowerCase();
+  return Array.from(lower).map((char) => {
+    const ruIndex = KEYBOARD_RU.indexOf(char);
+    if (ruIndex >= 0) return KEYBOARD_EN[ruIndex] || char;
+    const enIndex = KEYBOARD_EN.indexOf(char);
+    if (enIndex >= 0) return KEYBOARD_RU[enIndex] || char;
+    return char;
+  }).join("");
 }
 
-function commandCountLabel(value) {
-  const number = Math.abs(Number(value) || 0);
-  const lastTwo = number % 100;
-  const last = number % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return `${number} команд`;
-  if (last === 1) return `${number} команда`;
-  if (last >= 2 && last <= 4) return `${number} команды`;
-  return `${number} команд`;
+function normalizeSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/gi, " ")
+    .trim();
+}
+
+function fuzzyDistance(left, right) {
+  const a = normalizeSearchText(left);
+  const b = normalizeSearchText(right);
+  if (!a || !b) return 99;
+  if (a === b || a.includes(b) || b.includes(a)) return 0;
+  const width = b.length + 1;
+  const previous = Array.from({ length: width }, (_, index) => index);
+  let current = new Array(width);
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+    current = new Array(width);
+  }
+  return previous[b.length];
+}
+
+function actionMatchesSearch(action, query) {
+  const raw = query.trim();
+  if (!raw) return true;
+  const direct = normalizeSearchText(raw);
+  const switched = normalizeSearchText(switchKeyboardLayout(raw));
+  const variants = Array.from(new Set([direct, switched].filter(Boolean)));
+  const title = normalizeSearchText(action.title);
+  const price = String(action.price || "");
+  return variants.some((variant) => {
+    if (!variant) return true;
+    if (/^\d+$/.test(variant)) return price.includes(variant);
+    if (title.includes(variant)) return true;
+    const titleWords = title.split(/\s+/).filter(Boolean);
+    const allowed = variant.length <= 4 ? 1 : 2;
+    return titleWords.some((word) => fuzzyDistance(word, variant) <= allowed || fuzzyDistance(title, variant) <= allowed);
+  });
+}
+
+function generateVoucherCode() {
+  return `LIVE-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
 function roleTitle(user) {
@@ -390,7 +457,7 @@ function App() {
   return (
     <>
       <AppBackground />
-      <Shell user={me} onLogout={logout} error={error}>
+      <Shell user={me} onUserChange={setMe} onLogout={logout} error={error}>
         {canOpenStreamerPanel(me) ? (
           <AdminDashboard user={me} onUserChange={setMe} />
         ) : (
@@ -401,7 +468,7 @@ function App() {
   );
 }
 
-function Shell({ user, onLogout, error, children }) {
+function Shell({ user, onUserChange, onLogout, error, children }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState("");
@@ -427,6 +494,7 @@ function Shell({ user, onLogout, error, children }) {
           <span>Integro</span>
         </div>
         <div className="topbar-right">
+          {!canOpenStreamerPanel(user) && <TopbarVoucher onUserChange={onUserChange} />}
           {!canOpenStreamerPanel(user) && (
             <div className="balance-chip">
               <Coins size={16} />
@@ -449,6 +517,52 @@ function Shell({ user, onLogout, error, children }) {
       {error && <div className="notice error shell-notice">{error}</div>}
       {children}
     </div>
+  );
+}
+
+function TopbarVoucher({ onUserChange }) {
+  const [voucher, setVoucher] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  useAutoDismissNotice(notice, setNotice);
+
+  async function redeem(event) {
+    event.preventDefault();
+    const code = voucher.trim();
+    if (!code) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await api.redeemVoucher(code);
+      const me = await api.me();
+      onUserChange(me.user);
+      setVoucher("");
+      setNotice({ tone: "success", text: `Ваучер активирован: +${coinAmount(result.coins)}` });
+    } catch (err) {
+      setNotice({ tone: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <form className="topbar-voucher" onSubmit={redeem} aria-label="Активация ваучера">
+        <Ticket size={15} />
+        <input
+          value={voucher}
+          onChange={(event) => setVoucher(event.target.value)}
+          placeholder="Ваучер"
+          autoComplete="off"
+          aria-label="Код ваучера"
+        />
+        <button className="topbar-voucher-submit" type="submit" disabled={!voucher.trim() || busy} title="Активировать ваучер">
+          {busy ? <Loader2 className="spin" size={15} /> : <BadgeCheck size={15} />}
+        </button>
+      </form>
+      <Notice notice={notice} />
+    </>
   );
 }
 
@@ -497,21 +611,24 @@ function StatMini({ label, value }) {
 function UserDashboard({ user, onUserChange }) {
   const [actions, setActions] = useState([]);
   const [bridgeOnline, setBridgeOnline] = useState(false);
-  const [voucher, setVoucher] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [kindFilter, setKindFilter] = useState("all");
   const [priceSort, setPriceSort] = useState("none");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useAutoDismissNotice(notice, setNotice);
 
   const visibleActions = useMemo(() => {
-    const filtered = actions.filter((action) => kindFilter === "all" || action.sentiment === kindFilter);
+    const filtered = actions.filter((action) => {
+      const matchesKind = kindFilter === "all" || action.sentiment === kindFilter;
+      return matchesKind && actionMatchesSearch(action, searchQuery);
+    });
     if (priceSort === "asc") return [...filtered].sort((a, b) => a.price - b.price);
     if (priceSort === "desc") return [...filtered].sort((a, b) => b.price - a.price);
     return filtered;
-  }, [actions, kindFilter, priceSort]);
+  }, [actions, kindFilter, priceSort, searchQuery]);
 
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
@@ -531,24 +648,6 @@ function UserDashboard({ user, onUserChange }) {
     refresh();
   }, []);
 
-  async function redeem(event) {
-    event.preventDefault();
-    const code = voucher.trim();
-    if (!code) return;
-    setBusy("voucher");
-    setNotice(null);
-    try {
-      const result = await api.redeemVoucher(code);
-      setNotice({ tone: "success", text: `Ваучер активирован: +${coinAmount(result.coins)}` });
-      setVoucher("");
-      await refresh({ silent: true });
-    } catch (err) {
-      setNotice({ tone: "error", text: err.message });
-    } finally {
-      setBusy("");
-    }
-  }
-
   async function buy(action) {
     setBusy(action.id);
     setNotice(null);
@@ -565,25 +664,9 @@ function UserDashboard({ user, onUserChange }) {
 
   return (
     <main className="workspace user-workspace">
-      <section className="viewer-bar viewer-bar-compact">
-        <form className="voucher-strip" onSubmit={redeem} aria-label="Активация ваучера">
-          <input
-            value={voucher}
-            onChange={(event) => setVoucher(event.target.value)}
-            placeholder="Ваучер"
-            autoComplete="off"
-            aria-label="Код ваучера"
-          />
-          <ShinyButton className="primary-action" disabled={!voucher.trim() || busy === "voucher"}>
-            <Ticket size={17} />
-            {busy === "voucher" ? "Проверяем" : "Активировать"}
-          </ShinyButton>
-        </form>
-      </section>
-
       <Notice notice={notice} />
 
-      <section className="sort-toolbar" aria-label="Сортировка команд">
+      <section className="sort-toolbar command-control-bar" aria-label="Сортировка команд">
         <div className="segmented">
           <button className={kindFilter === "all" ? "active" : ""} type="button" onClick={() => setKindFilter("all")}>Все</button>
           <button className={kindFilter === "good" ? "active" : ""} type="button" onClick={() => setKindFilter("good")}>
@@ -595,6 +678,15 @@ function UserDashboard({ user, onUserChange }) {
             Плохие
           </button>
         </div>
+        <label className="input-icon action-search">
+          <Search size={17} />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Поиск по названию или цене"
+            aria-label="Поиск команд"
+          />
+        </label>
         <div className="segmented">
           <button className={priceSort === "none" ? "active" : ""} type="button" onClick={() => setPriceSort("none")}>Сначала новые</button>
           <button className={priceSort === "asc" ? "active" : ""} type="button" onClick={() => setPriceSort("asc")}>Дешевле</button>
@@ -684,8 +776,10 @@ function AdminDashboard({ user, onUserChange }) {
   const [users, setUsers] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [overview, setOverview] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [clearingSection, setClearingSection] = useState("");
   const isDeveloper = canOpenDeveloperPanel(user);
 
   useEffect(() => {
@@ -697,9 +791,10 @@ function AdminDashboard({ user, onUserChange }) {
   async function refresh(options = {}) {
     if (!options.silent) setLoading(true);
     try {
-      const [me, nextOverview, nextActions, nextVouchers, nextUsers, nextPurchases] = await Promise.all([
+      const [me, nextOverview, nextAnalytics, nextActions, nextVouchers, nextUsers, nextPurchases] = await Promise.all([
         api.me(),
         api.adminOverview(),
+        api.adminAnalytics(),
         api.adminActions(),
         api.adminVouchers(),
         api.adminUsers(),
@@ -707,6 +802,7 @@ function AdminDashboard({ user, onUserChange }) {
       ]);
       onUserChange(me.user);
       setOverview(nextOverview);
+      setAnalytics(nextAnalytics);
       setActions(nextActions.actions);
       setVouchers(nextVouchers.vouchers);
       setUsers(nextUsers.users);
@@ -722,19 +818,38 @@ function AdminDashboard({ user, onUserChange }) {
     refresh();
   }, []);
 
-  async function resetData() {
-    const confirmed = window.confirm("Удалить статистику и всех зрителей? Стримерские аккаунты останутся.");
+  async function clearSection(scope) {
+    const meta = {
+      actions: {
+        label: "команды",
+        confirm: "Удалить все команды? Связанные донаты, списания и логи команд тоже будут очищены, балансы пересчитаются."
+      },
+      vouchers: {
+        label: "ваучеры",
+        confirm: "Удалить все ваучеры? Активации и начисления по ваучерам тоже будут очищены, балансы пересчитаются."
+      },
+      users: {
+        label: "пользователей",
+        confirm: "Удалить зрителей и их данные? Роли стримера, разработчика и тестера останутся."
+      },
+      donations: {
+        label: "донаты",
+        confirm: "Удалить историю донатов? Списания по командам и связанные логи будут очищены, балансы пересчитаются."
+      }
+    }[scope];
+    if (!meta) return;
+    const confirmed = window.confirm(meta.confirm);
     if (!confirmed) return;
     setMessage("");
-    setLoading(true);
+    setClearingSection(scope);
     try {
-      await api.adminResetData();
-      setMessage("Статистика и зрители очищены");
+      await api.adminResetSection(scope);
+      setMessage(`Раздел "${meta.label}" очищен`);
       await refresh({ silent: true });
     } catch (err) {
       setMessage(err.message);
     } finally {
-      setLoading(false);
+      setClearingSection("");
     }
   }
 
@@ -744,7 +859,8 @@ function AdminDashboard({ user, onUserChange }) {
     { id: "vouchers", label: "Ваучеры", icon: Ticket, count: vouchers.length },
     { id: "users", label: "Пользователи", icon: Users, count: users.length },
     { id: "donations", label: "Донаты", icon: Zap, count: purchases.length },
-    ...(isDeveloper ? [{ id: "developer", label: "Developer", icon: Shield, count: 0 }] : [])
+    { id: "analytics", label: "Аналитика", icon: BarChart3 },
+    ...(isDeveloper ? [{ id: "developer", label: "Developer", icon: Shield, danger: true }] : [])
   ];
 
   return (
@@ -758,10 +874,6 @@ function AdminDashboard({ user, onUserChange }) {
             <RefreshCcw size={17} className={loading ? "spin" : ""} />
             Обновить
           </button>
-          <button className="secondary-action danger-action" onClick={resetData} type="button" disabled={loading}>
-            <Eraser size={17} />
-            Очистить данные
-          </button>
         </div>
       </section>
 
@@ -769,8 +881,6 @@ function AdminDashboard({ user, onUserChange }) {
         <Metric icon={Coins} label="Получено" value={coinAmount(overview?.totalReceived || 0)} />
         <Metric icon={Zap} label="Потрачено" value={coinAmount(overview?.totalSpent || 0)} />
         <Metric icon={Ticket} label="Активаций" value={overview?.voucherRedemptionsCount || 0} />
-        <Metric icon={Terminal} label="Донатов" value={overview?.purchasesCount || 0} />
-        <Metric icon={Users} label="Пользователей" value={overview?.usersCount || 0} />
         <Metric
           icon={bridgeOnline ? Wifi : WifiOff}
           label="Bridge"
@@ -782,19 +892,20 @@ function AdminDashboard({ user, onUserChange }) {
       {message && <div className="notice info">{message}</div>}
 
       <nav className="tabs" aria-label="Разделы стримера">
-        {tabs.map(({ id, label, icon: Icon, count }) => (
-          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} type="button">
+        {tabs.map(({ id, label, icon: Icon, count, danger }) => (
+          <button key={id} className={`${tab === id ? "active" : ""} ${danger ? "danger-tab" : ""}`} onClick={() => setTab(id)} type="button">
             <Icon size={17} />
             <span>{label}</span>
-            <b>{count}</b>
+            {count !== undefined && <b>{count}</b>}
           </button>
         ))}
       </nav>
 
-      {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} />}
-      {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} />}
-      {tab === "users" && <AdminUsers users={users} refresh={refresh} setMessage={setMessage} />}
-      {tab === "donations" && <AdminDonations purchases={purchases} />}
+      {tab === "actions" && <AdminActions actions={actions} refresh={refresh} setMessage={setMessage} onClear={() => clearSection("actions")} clearing={clearingSection === "actions"} />}
+      {tab === "vouchers" && <AdminVouchers vouchers={vouchers} refresh={refresh} setMessage={setMessage} onClear={() => clearSection("vouchers")} clearing={clearingSection === "vouchers"} />}
+      {tab === "users" && <AdminUsers users={users} refresh={refresh} setMessage={setMessage} onClear={() => clearSection("users")} clearing={clearingSection === "users"} />}
+      {tab === "donations" && <AdminDonations purchases={purchases} onClear={() => clearSection("donations")} clearing={clearingSection === "donations"} />}
+      {tab === "analytics" && <AdminAnalytics analytics={analytics} />}
       {tab === "developer" && isDeveloper && <DeveloperPanel setMessage={setMessage} />}
     </main>
   );
@@ -810,21 +921,60 @@ function Metric({ icon: Icon, label, value, tone = "neutral" }) {
   );
 }
 
-function AdminActions({ actions, refresh, setMessage }) {
+function SectionClearButton({ onClick, disabled, title = "Очистить раздел" }) {
+  return (
+    <button className="secondary-action compact danger-action section-clear-button" onClick={onClick} type="button" disabled={disabled} title={title}>
+      {disabled ? <Loader2 className="spin" size={15} /> : <Eraser size={15} />}
+      <span>Очистить</span>
+    </button>
+  );
+}
+
+function AdminActions({ actions, refresh, setMessage, onClear, clearing }) {
   const [form, setForm] = useState(emptyActionForm);
   const [editingId, setEditingId] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [pendingBanner, setPendingBanner] = useState(null);
   const [expandedCommandIndex, setExpandedCommandIndex] = useState(null);
+  const [actionSort, setActionSort] = useState({ key: "created", direction: "desc" });
   const commandLines = useMemo(() => form.commands.map((command) => command.trim()).filter(Boolean).length, [form.commands]);
   const randomLimit = Math.max(1, commandLines || 1);
   const isEditing = Boolean(editingId);
+  const sortedActions = useMemo(() => {
+    const byTitle = (a, b) => String(a.title || "").localeCompare(String(b.title || ""), "ru", { sensitivity: "base" });
+    const byPrice = (a, b) => (Number(a.price) || 0) - (Number(b.price) || 0) || byTitle(a, b);
+    const byStatus = (a, b) => Number(b.isEnabled) - Number(a.isEnabled) || byTitle(a, b);
+    const direction = actionSort.direction === "asc" ? 1 : -1;
+    const next = [...actions];
+    if (actionSort.key === "created") return actionSort.direction === "desc" ? next : next.reverse();
+    if (actionSort.key === "title") return next.sort((a, b) => byTitle(a, b) * direction);
+    if (actionSort.key === "price") return next.sort((a, b) => byPrice(a, b) * direction);
+    if (actionSort.key === "enabled") return next.sort((a, b) => byStatus(a, b) * direction);
+    return next;
+  }, [actions, actionSort]);
+
+  function toggleActionSort(key) {
+    setActionSort((current) => {
+      if (current.key === key) {
+        return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+      }
+      return { key, direction: key === "created" || key === "enabled" ? "desc" : "asc" };
+    });
+  }
+
+  function sortButtonClass(key) {
+    return actionSort.key === key ? "active" : "";
+  }
+
+  function sortButtonLabel(key, ascLabel, descLabel) {
+    if (actionSort.key !== key) return ascLabel;
+    return actionSort.direction === "asc" ? ascLabel : descLabel;
+  }
 
   function actionToForm(action) {
     return {
       title: action.title || "",
-      description: action.description || "",
       price: action.price || 1,
       commands: action.commands?.length ? [...action.commands] : [action.command || ""],
       commandMode: action.commandMode || "sequence",
@@ -839,7 +989,6 @@ function AdminActions({ actions, refresh, setMessage }) {
     setEditingId(action.id);
     setForm(actionToForm(action));
     setMessage(`Редактируешь: ${action.title}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function cancelEdit() {
@@ -915,7 +1064,7 @@ function AdminActions({ actions, refresh, setMessage }) {
     try {
       const payload = {
         title: form.title,
-        description: form.description,
+        description: "",
         price: Number(form.price),
         commands: form.commands.map((command) => command.trim()).filter(Boolean),
         commandMode: form.commandMode,
@@ -982,8 +1131,9 @@ function AdminActions({ actions, refresh, setMessage }) {
 
   return (
     <>
+    {isEditing && <div className="modal-backdrop action-edit-backdrop" onClick={cancelEdit} />}
     <section className="grid admin-grid">
-      <form className="panel form-panel" onSubmit={submit}>
+      <form className={`panel form-panel action-form-panel ${isEditing ? "action-edit-modal" : ""}`} onSubmit={submit}>
         <div className="panel-title panel-title-split">
           <div>
             {isEditing ? <Pencil size={19} /> : <Plus size={19} />}
@@ -992,7 +1142,6 @@ function AdminActions({ actions, refresh, setMessage }) {
           {isEditing && (
             <button className="secondary-action compact" type="button" onClick={cancelEdit}>
               <X size={15} />
-              Отмена
             </button>
           )}
         </div>
@@ -1000,35 +1149,43 @@ function AdminActions({ actions, refresh, setMessage }) {
           <span>Название</span>
           <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
         </label>
-        <label className="field">
-          <span>Описание для панели</span>
-          <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Можно оставить пустым" />
-        </label>
-        <label className="field">
-          <span>Баннер</span>
-          <div className="upload-box">
-            <div className={`thumb banner-preview ${form.bannerUrl ? "has-image" : ""}`} style={form.bannerUrl ? { backgroundImage: `url(${form.bannerUrl})` } : undefined}>
-              {!form.bannerUrl && <Image size={20} />}
-            </div>
-            <div>
-              <label className="secondary-action compact file-button">
-                <Upload size={15} />
-                Загрузить фото
+        <div className="action-setup-row">
+          <label className="field banner-field">
+            <span>Баннер</span>
+            <div className={`banner-uploader ${form.bannerUrl ? "has-image" : ""}`}>
+              {form.bannerUrl && (
+                <button
+                  className="banner-preview-button"
+                  type="button"
+                  onClick={() => setPendingBanner({
+                    source: form.bannerUrl,
+                    width: BANNER_WIDTH,
+                    height: BANNER_HEIGHT,
+                    ...getDefaultBannerCropBox(BANNER_WIDTH, BANNER_HEIGHT)
+                  })}
+                  title="Кадрировать"
+                  style={{ backgroundImage: `url(${form.bannerUrl})` }}
+                />
+              )}
+              <label className="icon-button compact file-button" title="Загрузить баннер">
+                <Upload size={16} />
                 <input type="file" accept="image/*" onChange={handleBanner} />
               </label>
               {form.bannerUrl && (
-                <button className="secondary-action compact remove-banner-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })}>
-                  <Trash2 size={15} />
-                  Убрать баннер
+                <button className="icon-button compact danger remove-banner-button" type="button" onClick={() => setForm({ ...form, bannerUrl: "" })} title="Убрать баннер">
+                  <Trash2 size={16} />
                 </button>
               )}
             </div>
-          </div>
-        </label>
-        <label className="field">
-          <span>Цена</span>
-          <input required type="number" min="1" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-        </label>
+          </label>
+          <label className="field price-field-wrap">
+            <span>Монеты</span>
+            <div className="price-field">
+              <Coins size={17} />
+              <input required type="number" min="1" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+            </div>
+          </label>
+        </div>
         <label className="field">
           <span>Команды Minecraft</span>
           <div className="command-fields">
@@ -1058,9 +1215,8 @@ function AdminActions({ actions, refresh, setMessage }) {
                 </div>
               </div>
             ))}
-            <button className="secondary-action compact add-command-button" type="button" onClick={addCommand}>
+            <button className="icon-button compact add-command-button" type="button" onClick={addCommand} title="Добавить команду">
               <Plus size={15} />
-              Добавить команду
             </button>
           </div>
         </label>
@@ -1069,17 +1225,17 @@ function AdminActions({ actions, refresh, setMessage }) {
             className={form.commandMode === "sequence" ? "active" : ""}
             type="button"
             onClick={() => setForm({ ...form, commandMode: "sequence" })}
+            title="По очереди"
           >
             <Terminal size={15} />
-            По очереди
           </button>
           <button
             className={form.commandMode === "random" ? "active" : ""}
             type="button"
             onClick={() => setForm({ ...form, commandMode: "random" })}
+            title="Рандом"
           >
             <Shuffle size={15} />
-            Рандом
           </button>
         </div>
         <div className="mode-row">
@@ -1087,25 +1243,26 @@ function AdminActions({ actions, refresh, setMessage }) {
             className={form.sentiment === "good" ? "active good-choice" : ""}
             type="button"
             onClick={() => setForm({ ...form, sentiment: "good" })}
+            title="Хорошая"
           >
             <ThumbsUp size={15} />
-            Хорошая
           </button>
           <button
             className={form.sentiment === "bad" ? "active bad-choice" : ""}
             type="button"
             onClick={() => setForm({ ...form, sentiment: "bad" })}
+            title="Плохая"
           >
             <ThumbsDown size={15} />
-            Плохая
           </button>
         </div>
-        <div className="split-inputs">
-          <label className="field">
-            <span>Между командами, сек</span>
-            <input type="number" min="0" value={form.stepDelaySeconds} onChange={(e) => setForm({ ...form, stepDelaySeconds: e.target.value })} />
-          </label>
-          {form.commandMode === "random" && (
+        <div className="action-submit-row">
+          <div className="split-inputs action-delay-fields">
+            <label className="field">
+              <span>Задержка, сек</span>
+              <input type="number" min="0" value={form.stepDelaySeconds} onChange={(e) => setForm({ ...form, stepDelaySeconds: e.target.value })} />
+            </label>
+            {form.commandMode === "random" && (
             <label className="field">
               <span>Сколько рандомных</span>
               <input
@@ -1116,59 +1273,71 @@ function AdminActions({ actions, refresh, setMessage }) {
                 onChange={(e) => setForm({ ...form, randomCount: e.target.value })}
               />
             </label>
-          )}
-        </div>
-        <div className="form-foot">
-          <span>{commandCountLabel(commandLines || 0)}</span>
-          <ShinyButton className="primary-action compact" disabled={saving}>
-            <BadgeCheck size={17} />
-            {saving ? "Сохраняем" : isEditing ? "Сохранить" : "Создать"}
+            )}
+          </div>
+          <ShinyButton className="primary-action compact icon-only" disabled={saving} title={isEditing ? "Сохранить" : "Создать"}>
+            {saving ? <Loader2 className="spin" size={17} /> : <BadgeCheck size={17} />}
           </ShinyButton>
         </div>
       </form>
 
       <section className="panel">
-        <div className="panel-title">
-          <Terminal size={19} />
-          <h2>Команды</h2>
+        <div className="panel-title panel-title-split">
+          <div>
+            <Terminal size={19} />
+            <h2>Команды</h2>
+          </div>
+          <SectionClearButton onClick={onClear} disabled={clearing || actions.length === 0} title="Удалить все команды" />
+        </div>
+        <div className="admin-sort-bar">
+          <span>Сортировка</span>
+          <div className="segmented compact-segmented" role="group" aria-label="Сортировка команд">
+            <button className={sortButtonClass("created")} type="button" onClick={() => toggleActionSort("created")}>
+              {sortButtonLabel("created", "Старые", "Новые")}
+            </button>
+            <button className={sortButtonClass("title")} type="button" onClick={() => toggleActionSort("title")}>
+              {sortButtonLabel("title", "А-Я", "Я-А")}
+            </button>
+            <button className={sortButtonClass("price")} type="button" onClick={() => toggleActionSort("price")}>
+              {sortButtonLabel("price", "Цена ↑", "Цена ↓")}
+            </button>
+            <button className={sortButtonClass("enabled")} type="button" onClick={() => toggleActionSort("enabled")}>
+              {sortButtonLabel("enabled", "Выкл.", "Вкл.")}
+            </button>
+          </div>
         </div>
         <div className="table-list">
           {actions.length === 0 && <EmptyState icon={Terminal} title="Команд нет" text="Создай первое действие для стрима." />}
-          {actions.map((action) => (
+          {sortedActions.map((action) => (
             <div className="admin-row action-admin-row" key={action.id}>
               <div className="admin-action-media">
-                <div className={`thumb ${action.bannerUrl ? "has-image" : ""}`} style={action.bannerUrl ? { backgroundImage: `url(${action.bannerUrl})` } : undefined}>
-                  {!action.bannerUrl && <Gamepad2 size={20} />}
-                </div>
+                {action.bannerUrl && <div className="thumb has-image" style={{ backgroundImage: `url(${action.bannerUrl})` }} />}
                 <div>
                   <div className="row-title">
                     <strong>{action.title}</strong>
-                    <span className={`state-badge ${action.isEnabled ? "on" : "off"}`}>
-                      {action.isEnabled ? "включена" : "выключена"}
+                    <span className={`state-badge icon-state ${action.isEnabled ? "on" : "off"}`} title={action.isEnabled ? "Включена" : "Выключена"}>
+                      <Power size={14} />
                     </span>
-                    <span className={`state-badge ${action.sentiment === "bad" ? "bad" : "good"}`}>
-                      {action.sentiment === "bad" ? "плохая" : "хорошая"}
+                    <span className={`state-badge icon-state ${action.sentiment === "bad" ? "bad" : "good"}`} title={action.sentiment === "bad" ? "Плохая" : "Хорошая"}>
+                      {action.sentiment === "bad" ? <ThumbsDown size={14} /> : <ThumbsUp size={14} />}
                     </span>
                   </div>
                   <span>
-                    {coinAmount(action.price)} · {commandCountLabel(action.commandCount)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
+                    {coinAmount(action.price)} · {action.commandMode === "random" ? "рандом" : "по очереди"}
                     {action.stepDelayMs > 0 ? ` · задержка ${msLabel(action.stepDelayMs)}` : ""}
                   </span>
                   <code>{(action.commands || [action.command]).join(" | ")}</code>
                 </div>
               </div>
               <div className="row-actions">
-                <button className="secondary-action compact" onClick={() => startEdit(action)} type="button" disabled={busyId === action.id}>
+                <button className="icon-button compact" onClick={() => startEdit(action)} type="button" disabled={busyId === action.id} title="Изменить">
                   <Pencil size={15} />
-                  Изменить
                 </button>
-                <button className="secondary-action compact" onClick={() => testAction(action)} type="button" disabled={busyId === action.id}>
+                <button className="icon-button compact" onClick={() => testAction(action)} type="button" disabled={busyId === action.id} title="Тест">
                   <Play size={15} />
-                  Тест
                 </button>
-                <button className="secondary-action compact" onClick={() => toggle(action)} type="button" disabled={busyId === action.id}>
+                <button className="icon-button compact" onClick={() => toggle(action)} type="button" disabled={busyId === action.id} title={action.isEnabled ? "Выключить" : "Включить"}>
                   <Power size={15} />
-                  {action.isEnabled ? "Выключить" : "Включить"}
                 </button>
                 <button className="icon-button danger" onClick={() => removeAction(action.id)} type="button" disabled={busyId === action.id} title="Удалить">
                   <Trash2 size={17} />
@@ -1406,7 +1575,7 @@ function ModalFrame({ children, onClose, className = "", backdropClassName = "",
   );
 }
 
-function AdminVouchers({ vouchers, refresh, setMessage }) {
+function AdminVouchers({ vouchers, refresh, setMessage, onClear, clearing }) {
   const [form, setForm] = useState({ code: "", coins: 500, maxRedemptions: 1, perUserLimit: 1, perUserCooldownSeconds: 0 });
   const [suggestedCode, setSuggestedCode] = useState(generateVoucherCode);
   const [saving, setSaving] = useState(false);
@@ -1471,11 +1640,6 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
     }
   }
 
-  function useGeneratedCode() {
-    setForm((current) => ({ ...current, code: suggestedCode }));
-    setSuggestedCode(generateVoucherCode());
-  }
-
   return (
     <section className="grid admin-grid">
       <form className="panel form-panel" onSubmit={submit}>
@@ -1487,10 +1651,6 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
           <span>Код</span>
           <div className="input-with-button">
             <input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={suggestedCode} />
-            <button className="secondary-action compact" type="button" onClick={useGeneratedCode}>
-              <Sparkles size={15} />
-              Сгенерировать
-            </button>
           </div>
         </label>
         <div className="split-inputs">
@@ -1513,16 +1673,18 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
             <input type="number" min="0" value={form.perUserCooldownSeconds} onChange={(e) => setForm({ ...form, perUserCooldownSeconds: e.target.value })} />
           </label>
         </div>
-        <ShinyButton className="primary-action compact" disabled={saving}>
-          <Plus size={17} />
-          {saving ? "Создаем" : "Создать"}
+        <ShinyButton className="primary-action compact icon-only" disabled={saving} title="Создать ваучер">
+          {saving ? <Loader2 className="spin" size={17} /> : <BadgeCheck size={17} />}
         </ShinyButton>
       </form>
 
       <section className="panel">
-        <div className="panel-title">
-          <Gift size={19} />
-          <h2>Ваучеры</h2>
+        <div className="panel-title panel-title-split">
+          <div>
+            <Gift size={19} />
+            <h2>Ваучеры</h2>
+          </div>
+          <SectionClearButton onClick={onClear} disabled={clearing || vouchers.length === 0} title="Удалить все ваучеры" />
         </div>
         <div className="table-list">
           {vouchers.length === 0 && <EmptyState icon={Gift} title="Ваучеров нет" text="Создай код для пополнения баланса." />}
@@ -1566,7 +1728,7 @@ function AdminVouchers({ vouchers, refresh, setMessage }) {
   );
 }
 
-function AdminUsers({ users, refresh, setMessage }) {
+function AdminUsers({ users, refresh, setMessage, onClear, clearing }) {
   const [query, setQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
   const [coinForm, setCoinForm] = useState({ mode: "grant", amount: "", reason: "" });
@@ -1587,10 +1749,13 @@ function AdminUsers({ users, refresh, setMessage }) {
           <Users size={19} />
           <h2>Пользователи</h2>
         </div>
-        <label className="input-icon user-search">
-          <Search size={17} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по имени" />
-        </label>
+        <div className="panel-tools">
+          <label className="input-icon user-search">
+            <Search size={17} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по имени" />
+          </label>
+          <SectionClearButton onClick={onClear} disabled={clearing || users.length === 0} title="Удалить зрителей" />
+        </div>
       </div>
       <div className="table-list">
         {users.length === 0 && <EmptyState icon={Users} title="Пользователей нет" text="После входа зрители появятся здесь." />}
@@ -1601,7 +1766,7 @@ function AdminUsers({ users, refresh, setMessage }) {
                 {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={20} />}
                 <div>
                   <strong>{user.name || "Зритель"}</strong>
-                  <span>{roleTitle(user)}</span>
+                  <span>{roleTitle(user)} · {coinAmount(user.balance)}</span>
                 </div>
               </div>
               <span>{user.purchasesCount || 0} донатов</span>
@@ -1698,7 +1863,7 @@ function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onBalanceSubmi
                 min="0"
                 value={coinForm.amount}
                 onChange={(event) => setCoinForm({ ...coinForm, amount: event.target.value })}
-                placeholder="Сумма"
+                placeholder="Монеты"
               />
             </div>
             <label className="field">
@@ -1719,12 +1884,15 @@ function UserDetailsModal({ user, onClose, coinForm, setCoinForm, onBalanceSubmi
   );
 }
 
-function AdminDonations({ purchases }) {
+function AdminDonations({ purchases, onClear, clearing }) {
   return (
     <section className="panel">
-      <div className="panel-title">
-        <Zap size={19} />
-        <h2>Последние донаты</h2>
+      <div className="panel-title panel-title-split">
+        <div>
+          <Zap size={19} />
+          <h2>Последние донаты</h2>
+        </div>
+        <SectionClearButton onClick={onClear} disabled={clearing || purchases.length === 0} title="Удалить историю донатов" />
       </div>
       <div className="table-list">
         {purchases.length === 0 && <EmptyState icon={Zap} title="Донатов пока нет" text="Новые покупки команд появятся здесь." />}
@@ -1745,6 +1913,215 @@ function AdminDonations({ purchases }) {
   );
 }
 
+const ANALYTICS_TABS = [
+  { id: "day", label: "День" },
+  { id: "week", label: "Неделя" },
+  { id: "month", label: "Месяц" },
+  { id: "year", label: "Год" }
+];
+
+function AdminAnalytics({ analytics }) {
+  const [period, setPeriod] = useState("week");
+  const current = analytics?.periods?.[period];
+  const totals = current?.totals || {};
+  const purchases = Number(totals.purchases || 0);
+  const successRate = purchases > 0 ? Math.round((Number(totals.completed || 0) / purchases) * 100) : 0;
+
+  if (!analytics) {
+    return (
+      <section className="panel analytics-panel">
+        <div className="panel-title">
+          <BarChart3 size={19} />
+          <h2>Аналитика</h2>
+        </div>
+        <EmptyState icon={BarChart3} title="Загружаем аналитику" text="Собираю статистику по периодам." />
+      </section>
+    );
+  }
+
+  return (
+    <section className="analytics-stack">
+      <section className="panel analytics-panel">
+        <div className="panel-title panel-title-split">
+          <div>
+            <BarChart3 size={19} />
+            <h2>Аналитика</h2>
+          </div>
+          <div className="period-switch" role="tablist" aria-label="Период аналитики">
+            {ANALYTICS_TABS.map((item) => (
+              <button className={period === item.id ? "active" : ""} key={item.id} type="button" onClick={() => setPeriod(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="analytics-period-note">
+          <CalendarDays size={16} />
+          <span>{current?.label || ""}</span>
+        </div>
+        <div className="analytics-kpis">
+          <AnalyticsKpi icon={Coins} label="Начислено ваучерами" value={coinAmount(totals.voucherReceived || 0)} />
+          <AnalyticsKpi icon={Zap} label="Потрачено на команды" value={coinAmount(totals.spent || 0)} />
+          <AnalyticsKpi icon={Terminal} label="Донатов команд" value={purchases} />
+          <AnalyticsKpi icon={Users} label="Уникальных донатеров" value={totals.uniqueUsers || 0} />
+          <AnalyticsKpi icon={Ticket} label="Активаций ваучеров" value={totals.voucherRedemptions || 0} />
+          <AnalyticsKpi icon={BadgeCheck} label="Средний чек" value={coinAmount(totals.averagePurchase || 0)} />
+          <AnalyticsKpi icon={Plus} label="Ручные начисления" value={coinAmount(totals.manualAdded || 0)} />
+          <AnalyticsKpi icon={RefreshCcw} label="Успешность команд" value={`${successRate}%`} />
+        </div>
+      </section>
+
+      <section className="analytics-grid">
+        <AnalyticsChart title="Донаты командами" data={current?.charts?.purchases || []} valueLabel={(value) => coinAmount(value)} type="area" />
+        <AnalyticsChart title="Активации ваучеров" data={current?.charts?.voucherRedemptions || []} valueLabel={(value) => coinAmount(value)} type="bar" />
+        <AnalyticsRanking title="Топ команд" empty="Команд за период нет" rows={current?.topActions || []} />
+        <AnalyticsRanking title="Топ донатеров" empty="Донатеров за период нет" rows={current?.topUsers || []} showAvatar />
+        <AnalyticsBreakdown totals={totals} />
+      </section>
+    </section>
+  );
+}
+
+function AnalyticsKpi({ icon: Icon, label, value }) {
+  return (
+    <div className="analytics-kpi">
+      <Icon size={17} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function AnalyticsChart({ title, data, valueLabel, type = "bar" }) {
+  const chartData = data.map((item) => ({ ...item, value: Number(item.amount || item.count || 0) }));
+  return (
+    <section className="panel chart-panel">
+      <div className="panel-title">
+        <BarChart3 size={18} />
+        <h2>{title}</h2>
+      </div>
+      <div className="rechart-box">
+        <ResponsiveContainer width="100%" height="100%">
+          {type === "area" ? (
+            <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="analyticsArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7cff9b" stopOpacity={0.46} />
+                  <stop offset="100%" stopColor="#7cff9b" stopOpacity={0.04} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="rgba(231,244,228,.12)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#a8b4aa", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={18} />
+              <YAxis tick={{ fill: "#a8b4aa", fontSize: 11 }} tickLine={false} axisLine={false} width={42} tickFormatter={(value) => money(value)} />
+              <Tooltip content={<AnalyticsTooltip valueLabel={valueLabel} />} />
+              <Area type="monotone" dataKey="value" stroke="#baffc8" strokeWidth={2} fill="url(#analyticsArea)" dot={false} activeDot={{ r: 4 }} />
+            </AreaChart>
+          ) : (
+            <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="rgba(231,244,228,.12)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#a8b4aa", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={18} />
+              <YAxis tick={{ fill: "#a8b4aa", fontSize: 11 }} tickLine={false} axisLine={false} width={42} tickFormatter={(value) => money(value)} />
+              <Tooltip content={<AnalyticsTooltip valueLabel={valueLabel} />} />
+              <Bar dataKey="value" radius={0}>
+                {chartData.map((entry, index) => <Cell key={`${entry.bucket}-${index}`} fill={index % 2 ? "#baffc8" : "#7cff9b"} />)}
+              </Bar>
+            </BarChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsTooltip({ active, payload, label, valueLabel }) {
+  if (!active || !payload?.length) return null;
+  const value = payload[0]?.value || 0;
+  const title = label || payload[0]?.name || "";
+  return (
+    <div className="analytics-tooltip">
+      <strong>{title}</strong>
+      <span>{valueLabel(value)}</span>
+    </div>
+  );
+}
+
+function AnalyticsRanking({ title, rows, empty, showAvatar = false }) {
+  const max = Math.max(...rows.map((row) => Number(row.amount || row.count || 0)), 1);
+  return (
+    <section className="panel ranking-panel">
+      <div className="panel-title">
+        <Terminal size={18} />
+        <h2>{title}</h2>
+      </div>
+      <div className="ranking-list">
+        {rows.length === 0 && <EmptyState icon={BarChart3} title={empty} text="Появится после активности зрителей." />}
+        {rows.map((row, index) => {
+          const value = Number(row.amount || row.count || 0);
+          return (
+            <div className="ranking-row" key={`${row.title || row.email || row.name}-${index}`}>
+              <div className="ranking-head">
+                {showAvatar && (
+                  <span className="ranking-avatar">
+                    {row.avatarUrl ? <img src={row.avatarUrl} alt="" /> : <UserRound size={15} />}
+                  </span>
+                )}
+                <strong>{row.title || row.name || row.email || "Без имени"}</strong>
+                <span>{coinAmount(row.amount || 0)}</span>
+              </div>
+              <div className="ranking-bar">
+                <span style={{ width: `${Math.max(5, Math.round((value / max) * 100))}%` }} />
+              </div>
+              <small>{row.count || 0} действий</small>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsBreakdown({ totals }) {
+  const rows = [
+    { name: "Ваучеры", value: Number(totals.voucherReceived || 0), color: "#7cff9b" },
+    { name: "Ручные", value: Number(totals.manualAdded || 0), color: "#baffc8" },
+    { name: "Потрачено", value: Number(totals.spent || 0), color: "#ffd36b" },
+    { name: "Списано", value: Number(totals.manualRemoved || 0), color: "#ff7a9f" }
+  ].filter((item) => item.value > 0);
+  return (
+    <section className="panel breakdown-panel">
+      <div className="panel-title">
+        <Coins size={18} />
+        <h2>Движение монет</h2>
+      </div>
+      <div className="breakdown-content">
+        <div className="pie-box">
+          {rows.length === 0 ? (
+            <EmptyState icon={Coins} title="Нет движения" text="За период монеты не менялись." />
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Tooltip content={<AnalyticsTooltip valueLabel={(value) => coinAmount(value)} />} />
+                <Pie data={rows} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={3}>
+                  {rows.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div className="breakdown-list">
+          {rows.map((row) => (
+            <div className="breakdown-row" key={row.name}>
+              <span style={{ "--dot": row.color }} />
+              <strong>{row.name}</strong>
+              <b>{coinAmount(row.value)}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DeveloperPanel({ setMessage }) {
   const [users, setUsers] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -1755,11 +2132,38 @@ function DeveloperPanel({ setMessage }) {
   const [expandedDevice, setExpandedDevice] = useState("");
   const [busy, setBusy] = useState("");
 
+  function scoreUser(user, needle) {
+    const query = needle.trim().toLowerCase();
+    if (!query) return 0;
+    const fields = [user.email || "", user.name || "", user.role || ""].map((value) => value.toLowerCase());
+    let best = 0;
+    for (const field of fields) {
+      const index = field.indexOf(query);
+      if (index === 0) best = Math.max(best, 100 - field.length);
+      else if (index > 0) best = Math.max(best, 70 - index);
+      else {
+        let cursor = 0;
+        let matched = 0;
+        for (const char of query) {
+          const found = field.indexOf(char, cursor);
+          if (found === -1) break;
+          matched += 1;
+          cursor = found + 1;
+        }
+        if (matched === query.length) best = Math.max(best, 35 + matched);
+      }
+    }
+    return best;
+  }
+
   const suggestedUsers = useMemo(() => {
     const needle = roleForm.email.trim().toLowerCase();
-    if (!needle) return users.slice(0, 6);
+    if (!needle) return [];
     return users
-      .filter((user) => `${user.email || ""} ${user.name || ""}`.toLowerCase().includes(needle))
+      .map((user) => ({ user, score: scoreUser(user, needle) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .map((item) => item.user)
       .slice(0, 6);
   }, [roleForm.email, users]);
 
@@ -1816,21 +2220,34 @@ function DeveloperPanel({ setMessage }) {
           <h2>Выдать роль</h2>
         </div>
         <form className="developer-add-form role-grant-form" onSubmit={assignRole}>
-          <label className="field">
-            <span>Email Google</span>
-            <input
-              required
-              type="email"
-              list="developer-email-suggestions"
-              value={roleForm.email}
-              onChange={(event) => setRoleForm({ ...roleForm, email: event.target.value })}
-              placeholder="user@gmail.com"
-            />
-            <datalist id="developer-email-suggestions">
-              {users.map((user) => (
-                <option key={user.id} value={user.email}>{user.name || roleTitle(user)}</option>
-              ))}
-            </datalist>
+          <label className="field role-search-field">
+            <span>Логин/Почта</span>
+            <div className="role-search-wrap">
+              {suggestedUsers.length > 0 && (
+                <div className="role-suggestions role-suggestions-popover" aria-label="Подсказки пользователей">
+                  {suggestedUsers.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => setRoleForm({ email: user.email, name: user.name || "", role: user.role || "user" })}
+                    >
+                      {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={16} />}
+                      <span>
+                        <strong>{user.email}</strong>
+                        <small>{user.name || "Без имени"} · {roleTitle(user)}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input
+                required
+                type="text"
+                value={roleForm.email}
+                onChange={(event) => setRoleForm({ ...roleForm, email: event.target.value })}
+                placeholder="Ник или user@gmail.com"
+              />
+            </div>
           </label>
           <label className="field">
             <span>Имя, если аккаунта еще нет</span>
@@ -1849,21 +2266,6 @@ function DeveloperPanel({ setMessage }) {
               <option value="developer">Разработчик</option>
             </select>
           </label>
-          <div className="role-suggestions" aria-label="Подсказки пользователей">
-            {suggestedUsers.map((user) => (
-              <button
-                key={user.id}
-                type="button"
-                onClick={() => setRoleForm({ email: user.email, name: user.name || "", role: user.role || "user" })}
-              >
-                {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <UserRound size={16} />}
-                <span>
-                  <strong>{user.email}</strong>
-                  <small>{user.name || "Без имени"} · {roleTitle(user)}</small>
-                </span>
-              </button>
-            ))}
-          </div>
           <ShinyButton className="primary-action compact" disabled={busy === "add-streamer"}>
             <Shield size={16} />
             Сохранить роль
@@ -1871,21 +2273,41 @@ function DeveloperPanel({ setMessage }) {
         </form>
       </section>
 
-      <section className="panel">
+      <section className="panel bridge-device-panel">
         <div className="panel-title">
           <Wifi size={19} />
           <h2>Bridge устройства</h2>
         </div>
-        <div className="table-list">
+        <div className="bridge-device-list">
           {devices.length === 0 && <EmptyState icon={WifiOff} title="Устройств нет" text="После логина мода устройства появятся здесь." />}
           {devices.map((device) => (
-            <div className="admin-row" key={device.id}>
-              <div>
-                <strong>{device.name || "Minecraft"}</strong>
-                <span>
-                  {device.user_name || device.user_email} · {device.minecraft_version || "MC"} · {device.mod_version || "mod"} · {device.revoked_at ? "отвязано" : "активно"}
-                </span>
-                <small>Последний раз: {dateTime(device.last_seen_at || device.created_at)}</small>
+            <div className={`bridge-device-card ${device.revoked_at ? "revoked" : "active"}`} key={device.id}>
+              <div className="bridge-device-main">
+                <div className="bridge-device-icon">
+                  {device.revoked_at ? <WifiOff size={20} /> : <Wifi size={20} />}
+                </div>
+                <div>
+                  <strong>{device.name || "Minecraft Bridge"}</strong>
+                  <span>{device.user_name || device.user_email || "Стример"}</span>
+                </div>
+                <div className="bridge-device-status">
+                  <span>{device.revoked_at ? "отвязано" : "активно"}</span>
+                  <small>{dateTime(device.last_seen_at || device.created_at)}</small>
+                </div>
+              </div>
+              <div className="bridge-device-meta">
+                <span>{device.minecraft_version || "Minecraft"}</span>
+                <span>{device.mod_version || "mod"}</span>
+                <span>{device.computer_name || "компьютер не передан"}</span>
+              </div>
+              <div className="bridge-device-actions">
+                <button className="icon-button compact" type="button" onClick={() => setExpandedDevice(expandedDevice === device.id ? "" : device.id)} title={expandedDevice === device.id ? "Скрыть детали" : "Показать детали"}>
+                  <Search size={15} />
+                </button>
+                <button className="icon-button danger compact" type="button" onClick={() => revokeDevice(device)} disabled={busy === `device:${device.id}` || Boolean(device.revoked_at)} title="Отвязать">
+                  <Trash2 size={16} />
+                </button>
+              </div>
                 {expandedDevice === device.id && (
                   <div className="device-private-details">
                     <span>Компьютер: {device.computer_name || "не передан"}</span>
@@ -1897,16 +2319,6 @@ function DeveloperPanel({ setMessage }) {
                     <span>User-Agent: {device.user_agent || "не передан"}</span>
                   </div>
                 )}
-              </div>
-              <div className="row-actions">
-                <button className="secondary-action compact" type="button" onClick={() => setExpandedDevice(expandedDevice === device.id ? "" : device.id)}>
-                  <Search size={15} />
-                  {expandedDevice === device.id ? "Скрыть" : "Детали"}
-                </button>
-                <button className="icon-button danger" type="button" onClick={() => revokeDevice(device)} disabled={busy === `device:${device.id}` || Boolean(device.revoked_at)} title="Отвязать">
-                  <Trash2 size={17} />
-                </button>
-              </div>
             </div>
           ))}
         </div>

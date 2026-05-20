@@ -57,6 +57,7 @@ export const api = {
   purchases: () => request("/me/purchases"),
   stats: () => request("/me/stats"),
   adminOverview: () => request("/admin/overview"),
+  adminAnalytics: () => request("/admin/analytics"),
   adminActions: () => request("/admin/actions"),
   createAction: (body) =>
     request("/admin/actions", { method: "POST", body: JSON.stringify(body) }),
@@ -73,6 +74,7 @@ export const api = {
   adminUsers: () => request("/admin/users"),
   adminPurchases: () => request("/admin/purchases"),
   adminResetData: () => request("/admin/reset", { method: "POST" }),
+  adminResetSection: (scope) => request(`/admin/reset/${scope}`, { method: "POST" }),
   adjustViewerBalance: (id, body) =>
     request(`/admin/users/${id}/balance`, { method: "POST", body: JSON.stringify(body) }),
   flushBridge: () => request("/bridge/flush", { method: "POST" }),

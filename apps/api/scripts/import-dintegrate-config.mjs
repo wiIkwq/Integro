@@ -77,8 +77,9 @@ function normalizeRule(record) {
     if (isDonationNotice(command)) {
       continue;
     }
+    const normalizedCommand = normalizeCommandText(command);
     steps.push({
-      command: command.slice(0, 1000),
+      command: normalizedCommand.slice(0, 1000),
       delayMs: Math.max(0, Math.min(600000, pendingDelayMs))
     });
     pendingDelayMs = 0;
@@ -194,8 +195,14 @@ const ACTION_OVERRIDES = {
   "dintegrate-rule-95": { title: "Орда усиленных прото разумов (маяки)", sentiment: "bad" },
   "dintegrate-rule-96": { title: "Обстрел РПГ ракетами всех", sentiment: "bad" },
   "dintegrate-rule-98": { title: "Удочка Нептуна", sentiment: "good" },
-  "dintegrate-rule-99": { title: "Мега установка против паразитов", sentiment: "good" }
+  "dintegrate-rule-99": { title: "Мега установка против паразитов", sentiment: "good" },
+  "dintegrate-rule-100": { title: "Хороший рандом", sentiment: "good" },
+  "dintegrate-rule-101": { title: "Плохой рандом", sentiment: "bad" }
 };
+
+function normalizeCommandText(command) {
+  return String(command || "").replace(/\bBebrok\b/gi, "{user}");
+}
 
 function parseDelayCommand(command) {
   const match = /^delay\s+([\d.,]+)$/i.exec(command.trim());

@@ -94,6 +94,21 @@ app.get("/auth/google/callback", async (c) => {
   });
 
   if (!tokenResponse.ok) {
+    const errorPayload = await readOauthError(tokenResponse);
+    await logEvent(c.env, {
+      level: "error",
+      source: "oauth.google",
+      message: "Google token exchange failed",
+      metadata: {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        contentType: tokenResponse.headers.get("content-type"),
+        error: errorPayload.error,
+        errorDescription: errorPayload.error_description,
+        raw: errorPayload.raw,
+        redirectUri
+      }
+    });
     return fail("Google token exchange failed", "oauth_exchange_failed", 502);
   }
 
@@ -186,6 +201,21 @@ app.get("/auth/twitch/callback", async (c) => {
   });
 
   if (!tokenResponse.ok) {
+    const errorPayload = await readOauthError(tokenResponse);
+    await logEvent(c.env, {
+      level: "error",
+      source: "oauth.twitch",
+      message: "Twitch token exchange failed",
+      metadata: {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        contentType: tokenResponse.headers.get("content-type"),
+        error: errorPayload.error,
+        errorDescription: errorPayload.error_description,
+        raw: errorPayload.raw,
+        redirectUri
+      }
+    });
     return fail("Twitch token exchange failed", "oauth_exchange_failed", 502);
   }
 
@@ -670,6 +700,14 @@ app.get("/admin/overview", requireAdmin, async (c) => {
   }));
 });
 
+app.get("/admin/analytics", requireAdmin, async (c) => {
+  const periods = {};
+  for (const period of ["day", "week", "month", "year"]) {
+    periods[period] = await buildAnalyticsPeriod(c.env, period);
+  }
+  return c.json(ok({ periods }));
+});
+
 app.get("/admin/actions", requireAdmin, async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT minecraft_actions.*
@@ -815,9 +853,15 @@ app.delete("/admin/actions/:id", requireAdmin, async (c) => {
       `DELETE FROM bridge_command_logs
        WHERE purchase_id IN (SELECT id FROM action_purchases WHERE action_id = ?)`
     ).bind(actionId),
+    c.env.DB.prepare(
+      `DELETE FROM balance_transactions
+       WHERE type IN ('action_purchase', 'action_refund')
+         AND reference_id IN (SELECT id FROM action_purchases WHERE action_id = ?)`
+    ).bind(actionId),
     c.env.DB.prepare("DELETE FROM action_purchases WHERE action_id = ?").bind(actionId),
     c.env.DB.prepare("DELETE FROM minecraft_actions WHERE id = ?").bind(actionId)
   ]);
+  await recalculateBalances(c.env);
   return c.json(ok());
 });
 
@@ -891,9 +935,11 @@ app.delete("/admin/vouchers/:id", requireAdmin, async (c) => {
   if (!existing) return fail("Voucher not found", "not_found", 404);
 
   await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM balance_transactions WHERE type = 'voucher_redeem' AND reference_id = ?").bind(existing.id),
     c.env.DB.prepare("DELETE FROM voucher_redemptions WHERE voucher_id = ?").bind(existing.id),
     c.env.DB.prepare("DELETE FROM vouchers WHERE id = ?").bind(existing.id)
   ]);
+  await recalculateBalances(c.env);
   return c.json(ok());
 });
 
@@ -960,15 +1006,33 @@ app.get("/admin/purchases", requireAdmin, async (c) => {
 app.post("/admin/reset", requireAdmin, async (c) => {
   const now = new Date().toISOString();
   await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role NOT IN ('admin', 'developer', 'streamer'))"),
+    c.env.DB.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE role NOT IN ('admin', 'developer', 'streamer', 'tester'))"),
     c.env.DB.prepare("DELETE FROM balance_transactions"),
     c.env.DB.prepare("DELETE FROM voucher_redemptions"),
+    c.env.DB.prepare("DELETE FROM bridge_command_logs"),
     c.env.DB.prepare("DELETE FROM action_purchases"),
     c.env.DB.prepare("UPDATE vouchers SET redeemed_count = 0, updated_at = ? WHERE deleted_at IS NULL").bind(now),
-    c.env.DB.prepare("DELETE FROM users WHERE role NOT IN ('admin', 'developer', 'streamer')"),
-    c.env.DB.prepare("UPDATE users SET balance = 0, updated_at = ? WHERE role IN ('admin', 'developer', 'streamer')").bind(now)
+    c.env.DB.prepare("DELETE FROM users WHERE role NOT IN ('admin', 'developer', 'streamer', 'tester')"),
+    c.env.DB.prepare("UPDATE users SET balance = 0, updated_at = ?").bind(now)
   ]);
   return c.json(ok());
+});
+
+app.post("/admin/reset/:scope", requireAdmin, async (c) => {
+  const scope = c.req.param("scope");
+  try {
+    const result = await resetAdminScope(c.env, scope);
+    await logEvent(c.env, {
+      level: "warn",
+      source: "admin.reset",
+      userId: c.get("user").id,
+      message: `Admin reset scope: ${scope}`,
+      metadata: result
+    });
+    return c.json(ok(result));
+  } catch (err) {
+    return fail(err.message, "invalid_reset_scope", 400);
+  }
 });
 
 app.post("/admin/users/:id/balance", requireAdmin, async (c) => {
@@ -1399,10 +1463,16 @@ function displayNameForEmail(email, fallback) {
   return String(fallback || email || "Пользователь").trim();
 }
 
-function renderCommand(template, user) {
-  return template
-    .replaceAll("{user}", sanitizeCommandPart(user.name || user.email))
-    .replaceAll("{email}", sanitizeCommandPart(user.email));
+function renderCommand(template, user, action) {
+    const name = sanitizeCommandPart(user.name || user.email);
+    const actionTitle = sanitizeCommandPart(action.title);
+
+    return template
+        .replaceAll("{user}", name)
+        .replaceAll("{name}", name)
+        .replaceAll("{email}", sanitizeCommandPart(user.email))
+        .replaceAll("{action}", actionTitle)
+        .replaceAll("{command}", actionTitle);
 }
 
 function renderCommandSteps(action, user) {
@@ -1414,7 +1484,7 @@ function renderCommandSteps(action, user) {
     ? shuffle(storedSteps).slice(0, randomCount)
     : storedSteps;
   const steps = currentSteps.map((step, index) => ({
-    command: renderCommand(step.command, user),
+      command: renderCommand(step.command, user, action),
     delayMs: step.delayMs > 0 ? step.delayMs : index === 0 ? 0 : stepDelayMs
   }));
 
@@ -1503,6 +1573,211 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, Math.trunc(number)));
 }
 
+async function readOauthError(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return { ...JSON.parse(text), raw: text.slice(0, 500) };
+  } catch {
+    return { raw: text.slice(0, 500) };
+  }
+}
+
+const ANALYTICS_PERIODS = {
+  day: { label: "24 часа", days: 1, bucket: "hour", points: 24 },
+  week: { label: "7 дней", days: 7, bucket: "day", points: 7 },
+  month: { label: "30 дней", days: 30, bucket: "day", points: 30 },
+  year: { label: "12 месяцев", days: 365, bucket: "month", points: 12 }
+};
+
+async function buildAnalyticsPeriod(env, periodKey) {
+  const meta = ANALYTICS_PERIODS[periodKey] || ANALYTICS_PERIODS.week;
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - meta.days * 24 * 60 * 60 * 1000);
+  const since = sinceDate.toISOString();
+  const bucketExpression = meta.bucket === "month"
+    ? "strftime('%Y-%m', created_at)"
+    : meta.bucket === "hour"
+      ? "strftime('%Y-%m-%d %H:00', created_at)"
+      : "strftime('%Y-%m-%d', created_at)";
+
+  const [
+    transactions,
+    purchases,
+    vouchers,
+    users,
+    purchaseChart,
+    voucherChart,
+    topActions,
+    topUsers,
+    statuses
+  ] = await Promise.all([
+    env.DB.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN type = 'voucher_redeem' THEN amount ELSE 0 END), 0) AS voucher_received,
+         COALESCE(SUM(CASE WHEN type = 'manual_adjustment' AND amount > 0 THEN amount ELSE 0 END), 0) AS manual_added,
+         COALESCE(SUM(CASE WHEN type = 'manual_adjustment' AND amount < 0 THEN -amount ELSE 0 END), 0) AS manual_removed,
+         COALESCE(SUM(CASE WHEN type = 'action_purchase' THEN -amount ELSE 0 END), 0) AS spent,
+         COALESCE(SUM(CASE WHEN type = 'action_refund' THEN amount ELSE 0 END), 0) AS refunded
+       FROM balance_transactions
+       WHERE created_at >= ?`
+    ).bind(since).first(),
+    env.DB.prepare(
+      `SELECT
+         COUNT(*) AS count,
+         COUNT(DISTINCT user_id) AS unique_users,
+         COALESCE(SUM(amount), 0) AS amount,
+         COALESCE(AVG(amount), 0) AS average_amount,
+         COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+         COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), 0) AS queued,
+         COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
+       FROM action_purchases
+       WHERE created_at >= ?`
+    ).bind(since).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(coins_granted), 0) AS amount
+       FROM voucher_redemptions
+       WHERE created_at >= ?`
+    ).bind(since).first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE created_at >= ?").bind(since).first(),
+    env.DB.prepare(
+      `SELECT ${bucketExpression} AS bucket,
+              COUNT(*) AS count,
+              COALESCE(SUM(amount), 0) AS amount
+       FROM action_purchases
+       WHERE created_at >= ?
+       GROUP BY bucket
+       ORDER BY bucket ASC`
+    ).bind(since).all(),
+    env.DB.prepare(
+      `SELECT ${bucketExpression} AS bucket,
+              COUNT(*) AS count,
+              COALESCE(SUM(coins_granted), 0) AS amount
+       FROM voucher_redemptions
+       WHERE created_at >= ?
+       GROUP BY bucket
+       ORDER BY bucket ASC`
+    ).bind(since).all(),
+    env.DB.prepare(
+      `SELECT COALESCE(minecraft_actions.title, 'Удаленная команда') AS title,
+              COUNT(*) AS count,
+              COALESCE(SUM(action_purchases.amount), 0) AS amount
+       FROM action_purchases
+       LEFT JOIN minecraft_actions ON minecraft_actions.id = action_purchases.action_id
+       WHERE action_purchases.created_at >= ?
+       GROUP BY action_purchases.action_id, minecraft_actions.title
+       ORDER BY count DESC, amount DESC
+       LIMIT 6`
+    ).bind(since).all(),
+    env.DB.prepare(
+      `SELECT users.name,
+              users.email,
+              users.avatar_url,
+              COUNT(*) AS count,
+              COALESCE(SUM(action_purchases.amount), 0) AS amount
+       FROM action_purchases
+       JOIN users ON users.id = action_purchases.user_id
+       WHERE action_purchases.created_at >= ?
+       GROUP BY action_purchases.user_id
+       ORDER BY amount DESC, count DESC
+       LIMIT 6`
+    ).bind(since).all(),
+    env.DB.prepare(
+      `SELECT status, COUNT(*) AS count
+       FROM action_purchases
+       WHERE created_at >= ?
+       GROUP BY status`
+    ).bind(since).all()
+  ]);
+
+  return {
+    label: meta.label,
+    since,
+    totals: {
+      voucherReceived: transactions?.voucher_received || 0,
+      manualAdded: transactions?.manual_added || 0,
+      manualRemoved: transactions?.manual_removed || 0,
+      spent: transactions?.spent || 0,
+      refunded: transactions?.refunded || 0,
+      purchases: purchases?.count || 0,
+      uniqueUsers: purchases?.unique_users || 0,
+      purchaseAmount: purchases?.amount || 0,
+      averagePurchase: Math.round(Number(purchases?.average_amount || 0)),
+      completed: purchases?.completed || 0,
+      queued: purchases?.queued || 0,
+      failed: purchases?.failed || 0,
+      voucherRedemptions: vouchers?.count || 0,
+      voucherAmount: vouchers?.amount || 0,
+      newUsers: users?.count || 0
+    },
+    charts: {
+      purchases: fillAnalyticsBuckets(meta, now, purchaseChart.results || [], "amount"),
+      voucherRedemptions: fillAnalyticsBuckets(meta, now, voucherChart.results || [], "amount")
+    },
+    topActions: (topActions.results || []).map((row) => ({
+      title: row.title,
+      count: row.count || 0,
+      amount: row.amount || 0
+    })),
+    topUsers: (topUsers.results || []).map((row) => ({
+      name: row.name,
+      email: row.email,
+      avatarUrl: row.avatar_url,
+      count: row.count || 0,
+      amount: row.amount || 0
+    })),
+    statuses: (statuses.results || []).map((row) => ({
+      status: row.status,
+      count: row.count || 0
+    }))
+  };
+}
+
+function fillAnalyticsBuckets(meta, now, rows, valueField) {
+  const map = new Map(rows.map((row) => [row.bucket, row]));
+  const points = [];
+  for (let index = meta.points - 1; index >= 0; index -= 1) {
+    const date = new Date(now);
+    if (meta.bucket === "month") {
+      date.setUTCMonth(date.getUTCMonth() - index, 1);
+      date.setUTCHours(0, 0, 0, 0);
+    } else if (meta.bucket === "hour") {
+      date.setUTCHours(date.getUTCHours() - index, 0, 0, 0);
+    } else {
+      date.setUTCDate(date.getUTCDate() - index);
+      date.setUTCHours(0, 0, 0, 0);
+    }
+    const bucket = analyticsBucketKey(date, meta.bucket);
+    const row = map.get(bucket) || {};
+    points.push({
+      bucket,
+      label: analyticsBucketLabel(date, meta.bucket),
+      count: row.count || 0,
+      amount: row[valueField] || 0
+    });
+  }
+  return points;
+}
+
+function analyticsBucketKey(date, bucket) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  if (bucket === "month") return `${year}-${month}`;
+  if (bucket === "hour") return `${year}-${month}-${day} ${String(date.getUTCHours()).padStart(2, "0")}:00`;
+  return `${year}-${month}-${day}`;
+}
+
+function analyticsBucketLabel(date, bucket) {
+  if (bucket === "month") {
+    return new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(date);
+  }
+  if (bucket === "hour") {
+    return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit" }).format(date);
+  }
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" }).format(date);
+}
+
 async function adjustUserBalance(c, targetUserId, source) {
   const body = await c.req.json().catch(() => ({}));
   const mode = body.mode === "set" || body.mode === "deduct" ? body.mode : "grant";
@@ -1532,6 +1807,75 @@ async function adjustUserBalance(c, targetUserId, source) {
     metadata: { targetUserId, mode, amount, delta, nextBalance, note }
   });
   return { balance: nextBalance, delta };
+}
+
+async function recalculateBalances(env) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE users
+     SET balance = MAX(0, COALESCE((
+       SELECT SUM(balance_transactions.amount)
+       FROM balance_transactions
+       WHERE balance_transactions.user_id = users.id
+     ), 0)),
+     updated_at = ?`
+  ).bind(now).run();
+}
+
+async function resetAdminScope(env, scope) {
+  const now = new Date().toISOString();
+  if (scope === "actions") {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM bridge_command_logs"),
+      env.DB.prepare("DELETE FROM balance_transactions WHERE type IN ('action_purchase', 'action_refund')"),
+      env.DB.prepare("DELETE FROM action_purchases"),
+      env.DB.prepare("DELETE FROM minecraft_actions")
+    ]);
+    await recalculateBalances(env);
+    return { scope, message: "actions cleared" };
+  }
+
+  if (scope === "vouchers") {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM balance_transactions WHERE type = 'voucher_redeem'"),
+      env.DB.prepare("DELETE FROM voucher_redemptions"),
+      env.DB.prepare("DELETE FROM vouchers")
+    ]);
+    await recalculateBalances(env);
+    return { scope, message: "vouchers cleared" };
+  }
+
+  if (scope === "donations") {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM bridge_command_logs WHERE purchase_id IS NOT NULL"),
+      env.DB.prepare("DELETE FROM balance_transactions WHERE type IN ('action_purchase', 'action_refund')"),
+      env.DB.prepare("DELETE FROM action_purchases")
+    ]);
+    await recalculateBalances(env);
+    return { scope, message: "donations cleared" };
+  }
+
+  if (scope === "users") {
+    const protectedWhere = "role IN ('admin', 'developer', 'streamer', 'tester') OR lower(email) IN ('bogdan3000tm@gmail.com', 'ihnatenko.bogdan@gmail.com')";
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM bridge_command_logs WHERE purchase_id IN (SELECT action_purchases.id FROM action_purchases JOIN users ON users.id = action_purchases.user_id WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM balance_transactions WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM voucher_redemptions WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM action_purchases WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM extension_tokens WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM bridge_devices WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`UPDATE extension_device_codes SET approved_user_id = NULL, device_token = NULL WHERE approved_user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`UPDATE bridge_device_codes SET approved_user_id = NULL, device_token = NULL WHERE approved_user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`UPDATE system_logs SET user_id = NULL WHERE user_id IN (SELECT id FROM users WHERE NOT (${protectedWhere}))`),
+      env.DB.prepare(`DELETE FROM users WHERE NOT (${protectedWhere})`),
+      env.DB.prepare("UPDATE users SET updated_at = ? WHERE 1 = 1").bind(now)
+    ]);
+    await recalculateBalances(env);
+    return { scope, message: "viewers cleared" };
+  }
+
+  throw new Error("Unknown reset section");
 }
 
 function normalizeRole(value) {
