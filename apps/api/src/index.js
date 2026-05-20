@@ -1465,7 +1465,7 @@ function displayNameForEmail(email, fallback) {
 
 function renderCommand(template, user, action) {
     const name = sanitizeCommandPart(user.name || user.email);
-    const actionTitle = sanitizeCommandPart(action.title);
+    const actionTitle = sanitizeCommandText(action.title);
 
     return template
         .replaceAll("{user}", name)
@@ -1475,20 +1475,33 @@ function renderCommand(template, user, action) {
         .replaceAll("{command}", actionTitle);
 }
 
-function renderCommandSteps(action, user) {
-  const storedSteps = parseStoredCommandSteps(action.command_plan, action.command);
-  const mode = normalizeCommandMode(action.command_mode || "sequence");
-  const stepDelayMs = clampNumber(action.step_delay_ms || 0, 0, 600000);
-  const randomCount = clampNumber(action.random_count || 1, 1, storedSteps.length || 1);
-  const currentSteps = mode === "random"
-    ? shuffle(storedSteps).slice(0, randomCount)
-    : storedSteps;
-  const steps = currentSteps.map((step, index) => ({
-      command: renderCommand(step.command, user, action),
-    delayMs: step.delayMs > 0 ? step.delayMs : index === 0 ? 0 : stepDelayMs
-  }));
+function sanitizeCommandText(value) {
+    return String(value || "")
+        .replace(/[\r\n"]/g, "")
+        .slice(0, 80);
+}
 
-  return steps.slice(0, 120);
+function sanitizeCommandPart(value) {
+    return String(value || "")
+        .replace(/[^\w.@-]/g, "_")
+        .slice(0, 64);
+}
+
+function renderCommandSteps(action, user) {
+    const storedSteps = parseStoredCommandSteps(action.command_plan, action.command);
+    const mode = normalizeCommandMode(action.command_mode || "sequence");
+    const stepDelayMs = clampNumber(action.step_delay_ms || 0, 0, 600000);
+    const randomCount = clampNumber(action.random_count || 1, 1, storedSteps.length || 1);
+    const currentSteps = mode === "random"
+        ? shuffle(storedSteps).slice(0, randomCount)
+        : storedSteps;
+
+    const steps = currentSteps.map((step, index) => ({
+        command: renderCommand(step.command, user, action),
+        delayMs: step.delayMs > 0 ? step.delayMs : index === 0 ? 0 : stepDelayMs
+    }));
+
+    return steps.slice(0, 120);
 }
 
 function shuffle(items) {

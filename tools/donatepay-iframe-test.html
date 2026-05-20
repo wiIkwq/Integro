@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DonatePay iframe test</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050806;
+        --panel: #0b120d;
+        --panel-2: #111a13;
+        --line: #dcebd9;
+        --muted: #a9b8aa;
+        --text: #f5fff1;
+        --accent: #a4ffb9;
+        --danger: #ff6b8b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(135deg, rgba(164, 255, 185, 0.08) 0 1px, transparent 1px 28px),
+          radial-gradient(circle at 20% 10%, rgba(164, 255, 185, 0.12), transparent 28rem),
+          var(--bg);
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 5vw, 48px);
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 18px;
+        margin-top: 28px;
+        align-items: start;
+      }
+
+      .panel {
+        border: 2px solid var(--line);
+        background: rgba(6, 12, 8, 0.88);
+        box-shadow: 8px 8px 0 rgba(220, 235, 217, 0.32);
+        padding: 18px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      input {
+        width: 100%;
+        height: 52px;
+        border: 2px solid var(--line);
+        background: #020503;
+        color: var(--text);
+        padding: 0 14px;
+        font-size: 22px;
+        font-weight: 800;
+        outline: none;
+      }
+
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px rgba(164, 255, 185, 0.12);
+      }
+
+      .buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      button {
+        min-height: 48px;
+        border: 2px solid var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+        font-size: 15px;
+        font-weight: 900;
+        cursor: pointer;
+        box-shadow: 5px 5px 0 rgba(220, 235, 217, 0.28);
+      }
+
+      button:hover {
+        transform: translate(-1px, -1px);
+      }
+
+      .primary {
+        background: var(--line);
+        color: #061006;
+      }
+
+      .quick {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .quick button {
+        min-height: 38px;
+        padding: 0 12px;
+      }
+
+      .hint {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .src {
+        word-break: break-all;
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid rgba(220, 235, 217, 0.3);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+
+      .frame-shell {
+        min-height: 360px;
+        display: grid;
+        place-items: center;
+      }
+
+      iframe {
+        width: min(100%, 510px);
+        height: 220px;
+        border: 0;
+        background: transparent;
+      }
+
+      .log {
+        margin-top: 18px;
+        max-height: 220px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .log div {
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(220, 235, 217, 0.12);
+      }
+
+      .error {
+        color: var(--danger);
+      }
+
+      @media (max-width: 850px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DonatePay payment test</h1>
+      <p>Тестируем iframe и прямую POST-форму DonatePay. По факту iframe читает из URL только сумму, а прямой POST с локального сайта может отдавать 404 из-за проверки Origin/Referer.</p>
+
+      <section class="grid">
+        <aside class="panel">
+          <label>
+            Сумма, RUB
+            <input id="amount" type="number" min="1" step="1" value="200" />
+          </label>
+
+          <label>
+            Имя
+            <input id="donorName" type="text" value="Bogdan3000" />
+          </label>
+
+          <label>
+            Комментарий
+            <input id="comment" type="text" value="Пополнение Integro #TEST123" placeholder="пусто" />
+          </label>
+
+          <label>
+            Способ оплаты
+            <input id="currency" type="text" value="freekassa" />
+          </label>
+
+          <label>
+            _f
+            <input id="fingerprint" type="text" value="_C_cd1aaec21a090e6bd1a42e705c0d9647dbc6d2f363b2387f82b0232ce4ef928c" />
+          </label>
+
+          <div class="buttons">
+            <button class="primary" id="load">Открыть iframe</button>
+            <button id="copy">Копировать HTML</button>
+            <button class="primary" id="postRedirect">POST redirect</button>
+            <button id="copyForm">Копировать form</button>
+          </div>
+
+          <p class="hint">
+            Iframe URL передает только сумму. Поля ниже нужны для проверки прямого POST, но DonatePay может отклонять его вне домена widget.donatepay.ru.
+          </p>
+
+          <div class="quick">
+            <button data-amount="1">1</button>
+            <button data-amount="3">3</button>
+            <button data-amount="10">10</button>
+            <button data-amount="100">100</button>
+            <button data-amount="200">200</button>
+          </div>
+
+          <div class="src" id="src"></div>
+        </aside>
+
+        <section class="panel">
+          <div class="frame-shell" id="frameShell"></div>
+          <div class="log" id="log"></div>
+        </section>
+      </section>
+
+      <form id="redirectForm" method="post" target="_blank" action="https://widget.donatepay.ru/widgets/donation/redirect" hidden>
+        <input type="hidden" name="_f" />
+        <input type="hidden" name="token" />
+        <input type="hidden" name="name" />
+        <input type="hidden" name="currency" />
+        <input type="hidden" name="sum" />
+        <input type="hidden" name="comment" />
+      </form>
+    </main>
+
+    <script>
+      const baseUrl =
+        "https://widget.donatepay.ru/widgets/page/106d51c683a446d1b23aaabeb46360a17e83caa41fa02f2850614b47dd4928e8";
+      const widgetId = "7632448";
+      const redirectUrl = "https://widget.donatepay.ru/widgets/donation/redirect";
+      const widgetToken = "106d51c683a446d1b23aaabeb46360a17e83caa41fa02f2850614b47dd4928e8";
+      const amountInput = document.querySelector("#amount");
+      const donorNameInput = document.querySelector("#donorName");
+      const commentInput = document.querySelector("#comment");
+      const currencyInput = document.querySelector("#currency");
+      const fingerprintInput = document.querySelector("#fingerprint");
+      const frameShell = document.querySelector("#frameShell");
+      const srcBox = document.querySelector("#src");
+      const logBox = document.querySelector("#log");
+      const redirectForm = document.querySelector("#redirectForm");
+
+      const log = (message, data, isError = false) => {
+        const row = document.createElement("div");
+        row.className = isError ? "error" : "";
+        row.textContent = `[${new Date().toLocaleTimeString()}] ${message}${data ? " " + JSON.stringify(data) : ""}`;
+        logBox.prepend(row);
+        console[isError ? "error" : "log"]("[DonatePay iframe test]", message, data || "");
+      };
+
+      const makePayload = () => ({
+        _f: fingerprintInput.value.trim(),
+        token: widgetToken,
+        name: donorNameInput.value.trim() || "Donation",
+        currency: currencyInput.value.trim() || "card",
+        sum: String(Math.max(1, Math.floor(Number(amountInput.value) || 1))),
+        comment: commentInput.value
+      });
+
+      const makeSrc = () => {
+        const payload = makePayload();
+        const params = new URLSearchParams({
+          widget_id: widgetId,
+          sum: payload.sum
+        });
+        return `${baseUrl}?${params.toString()}`;
+      };
+
+      const iframeHtml = () =>
+        `<iframe src="${makeSrc()}" width="510" height="220" frameborder="0"></iframe>`;
+
+      const formHtml = () => {
+        const payload = makePayload();
+        const inputs = Object.entries(payload)
+          .map(([name, value]) => `  <input type="hidden" name="${name}" value="${String(value).replaceAll('"', "&quot;")}">`)
+          .join("\n");
+        return `<form method="post" target="_blank" action="${redirectUrl}">\n${inputs}\n  <button type="submit">Оплатить ${payload.sum} RUB</button>\n</form>`;
+      };
+
+      const fillRedirectForm = () => {
+        const payload = makePayload();
+        Object.entries(payload).forEach(([name, value]) => {
+          redirectForm.elements[name].value = value;
+        });
+        return payload;
+      };
+
+      const render = () => {
+        const src = makeSrc();
+        srcBox.textContent = src;
+        frameShell.innerHTML = "";
+
+        const iframe = document.createElement("iframe");
+        iframe.src = src;
+        iframe.width = "510";
+        iframe.height = "220";
+        iframe.frameBorder = "0";
+        iframe.allow = "payment *";
+        iframe.referrerPolicy = "strict-origin-when-cross-origin";
+        iframe.addEventListener("load", () => log("iframe load", { src }));
+        iframe.addEventListener("error", () => log("iframe error", { src }, true));
+        frameShell.append(iframe);
+        log("iframe created", { src });
+      };
+
+      document.querySelector("#load").addEventListener("click", render);
+      document.querySelector("#copy").addEventListener("click", async () => {
+        await navigator.clipboard.writeText(iframeHtml());
+        log("iframe html copied");
+      });
+
+      document.querySelector("#postRedirect").addEventListener("click", () => {
+        const payload = fillRedirectForm();
+        log("form submit", { action: redirectUrl, payload });
+        redirectForm.submit();
+      });
+
+      document.querySelector("#copyForm").addEventListener("click", async () => {
+        await navigator.clipboard.writeText(formHtml());
+        log("form html copied", makePayload());
+      });
+
+      document.querySelectorAll("[data-amount]").forEach((button) => {
+        button.addEventListener("click", () => {
+          amountInput.value = button.dataset.amount;
+          render();
+        });
+      });
+
+      window.addEventListener("message", (event) => {
+        log("postMessage", { origin: event.origin, data: event.data });
+      });
+
+      window.addEventListener("error", (event) => {
+        log("window error", { message: event.message, source: event.filename }, true);
+      });
+
+      render();
+    </script>
+  </body>
+</html>
